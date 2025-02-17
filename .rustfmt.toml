@@ -1,0 +1,4 @@
+fn_args_layout = "Compressed"
+fn_params_layout = "Compressed"
+fn_single_line = true
+max_width = 999
