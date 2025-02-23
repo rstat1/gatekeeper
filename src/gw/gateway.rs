@@ -17,7 +17,7 @@ use tracing::debug;
 use crate::data::DataStore;
 
 #[async_trait]
-impl ProxyHttp for crate::gw::APIGateway {
+impl ProxyHttp for crate::gw::ReverseProxy {
     type CTX = ();
     fn new_ctx(&self) -> Self::CTX {}
 
@@ -30,18 +30,18 @@ impl ProxyHttp for crate::gw::APIGateway {
         debug!("{:?}", session.get_header("Host"));
 
         if let Some(host) = host {
-            let urlParts: Vec<&str> = host.to_str().unwrap().split(".").collect();
+            if self.serviceDomainNames.iter().any(|sd| sd == host.to_str().unwrap()) {
+                let urlParts: Vec<&str> = host.to_str().unwrap().split(".").collect();
 
-            debug!("{:?}", urlParts);
-
-            return Ok(false);
-        } else {
-            let h = ResponseHeader::build(400, None).unwrap();
-            session.write_response_header(Box::new(h), true).await?;
-            session.write_response_body(Some(Bytes::from_static(b"go away!")), true).await?;
-            session.set_keepalive(None);
-            return Ok(true);
+                return Ok(false);
+            }
         }
+
+        let h = ResponseHeader::build(400, None).unwrap();
+        session.write_response_header(Box::new(h), true).await?;
+        session.write_response_body(Some(Bytes::from_static(b"go away!\n")), true).await?;
+        session.set_keepalive(None);
+        return Ok(true);
     }
 
     async fn upstream_peer(&self, _session: &mut Session, _ctx: &mut Self::CTX) -> Result<Box<HttpPeer>> {
@@ -58,8 +58,4 @@ impl ProxyHttp for crate::gw::APIGateway {
     }
 }
 
-impl crate::gw::APIGateway {
-    pub fn new(db: DataStore) -> Self {
-        super::APIGateway { dataStore: db }
-    }
-}
+

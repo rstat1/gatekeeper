@@ -9,10 +9,24 @@
 //messages about formatting that shouldn't be complier warnings.
 #![allow(nonstandard_style)]
 
+use tracing::debug;
+
 use crate::data::DataStore;
 
 pub mod gateway;
 
-pub struct APIGateway {
+pub struct ReverseProxy {
     dataStore: DataStore,
+    serviceDomainNames: Vec<String>,
+}
+
+impl ReverseProxy {
+    pub fn new(db: DataStore) -> Self {
+        match db.GetDomainNames() {
+            Ok(domains) => ReverseProxy { dataStore: db, serviceDomainNames: domains },
+            Err(e) => {
+                panic!("{:?}", e)
+            }
+        }
+    }
 }
