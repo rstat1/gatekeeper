@@ -5,21 +5,26 @@
 * found in the included LICENSE file.
 */
 
-use mongodb::Client;
 use serde::{Deserialize, Serialize};
 
+use mongodb::bson::doc;
+use mongodb::sync::{Client, Collection};
+use tracing::{debug, info};
+
 pub struct DataStore {
-    pub client: mongodb::Client,
+    collectionName: String,
+    mongoEP: String,
+    pub client: Client,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SystemConfiguration {
     #[serde(rename = "vaultAddr")]
-    pub vault_endpoint: String,
+    pub vaultEndpoint: String,
     #[serde(rename = "dbAddr")]
-    pub mongo_endpoint: String,
+    pub mongoEndpoint: String,
     #[serde(rename = "dbName")]
-    pub collection_name: String,
+    pub collectionName: String,
 }
 
 /// A ServiceDomain is used to assign services to a base domain.
@@ -28,25 +33,49 @@ pub struct SystemConfiguration {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ServiceDomain {
     pub base: String,
-    pub services: Option<Vec<String>>,
-    pub applied_policies: Option<Vec<String>>,
+    pub services: Vec<String>,
+    pub frostCompatEnabled: bool,
+    pub securityPolicies: Option<Vec<String>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Service {
     pub name: String,
     pub internal: bool,
+    pub endpoints: Vec<Endpoint>,
+    pub securityPolices: Option<Vec<String>>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Endpoint {
+    pub port: i16,
+    pub listeningAddress: String,
 }
 
 impl DataStore {
-    pub async fn new(mongo_ep: &String) -> Result<Self, String> {
-        let c = Client::with_uri_str(mongo_ep).await;
+    pub fn new(username: &String, password: &String, epAddr: &String, collection: String) -> Result<Self, mongodb::error::Error> {
+        let mongoEP = format!("mongodb://{}:{}@{}/{}?directconnection=true&appName=gatekeeper", username, password, epAddr, collection);
+
+        let c = Client::with_uri_str(mongoEP.clone());
         match c {
-            Ok(c) => Ok(DataStore { client: c }),
-            Err(e) => Err(format!("Error connecting to mongo: {e}")),
+            Ok(c) => Ok(DataStore { client: c, collectionName: collection, mongoEP: mongoEP }),
+            Err(e) => Err(e),
         }
     }
-    pub fn get_domain(&self, _name: String) -> ServiceDomain {
-        ServiceDomain { base: "".to_string(), services: None, applied_policies: None }
+    pub fn GetDomain(&self, _name: String) -> ServiceDomain {
+        ServiceDomain { base: "".to_string(), services: Vec::new(), securityPolicies: None, frostCompatEnabled: false }
+    }
+    pub fn GetDomainNames(&self) -> Result<Vec<String>, mongodb::error::Error> {
+        let servicesColl: Collection<ServiceDomain> = self.client.database(&self.collectionName).collection("servicedomains");
+
+        let cursor = servicesColl.find(doc! {}).run()?;
+
+        let mut domains: Vec<String> = Vec::new();
+
+        for domain in cursor {
+            let d = domain?;
+            domains.push(d.base);
+        }
+        Ok(domains)
     }
 }
