@@ -11,21 +11,21 @@
 
 use pingora::prelude::*;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{debug, info};
 
 use gatekeeper::data::*;
-use gatekeeper::gw::APIGateway;
-use gatekeeper::vault::GatekeeperVaultClient;
+use gatekeeper::gw::ReverseProxy;
+use gatekeeper::vault::{DBCredentials, GatekeeperVaultClient};
 
 fn main() {
     tracing_subscriber::fmt::init();
     info!("starting gatekeeper...");
     let mut server = Server::new(None).unwrap();
-    let mut mongoDBEp: String = "".to_string();
     let conf: SystemConfiguration;
     let vault: Arc<GatekeeperVaultClient>;
     let db: DataStore;
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    let dbCreds: DBCredentials;
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 
     server.bootstrap();
 
@@ -37,28 +37,28 @@ fn main() {
         Err(e) => panic!("{:?}", e),
     }
 
-    let async_vc_init = async { GatekeeperVaultClient::new(&conf.vault_endpoint).await };
+    let async_vc_init = async { GatekeeperVaultClient::new(&conf.vaultEndpoint).await };
     match rt.block_on(async_vc_init) {
         Ok(c) => vault = c,
         Err(e) => panic!("{:?}", e),
     }
 
-    let async_db_init = async {
-        let mongo_creds = vault.get_db_credentials().await;
-        match mongo_creds {
-            Ok(creds) => {
-                mongoDBEp = format!("mongodb://{}:{}@{}/{}?authsource={}", creds.username, creds.password, conf.mongo_endpoint, conf.collection_name, conf.collection_name);
-                DataStore::new(&mongoDBEp).await
-            }
-            Err(e) => panic!("{:?}", e),
-        }
-    };
+    info!("vault client init");
+
+    let async_db_init = async { vault.get_db_credentials().await };
     match rt.block_on(async_db_init) {
-        Ok(dbs) => db = dbs,
+        Ok(dbs) => dbCreds = dbs,
         Err(e) => panic!("{:?}", e),
     }
 
-    let mut proxy = pingora_proxy::http_proxy_service(&server.configuration, APIGateway::new(db));
+    match DataStore::new(&dbCreds.username, &dbCreds.password, &conf.mongoEndpoint, conf.collectionName) {
+        Ok(ds) => db = ds,
+        Err(e) => panic!("{:?}", e),
+    }
+
+    debug!("mongodb client init");
+
+    let mut proxy = pingora_proxy::http_proxy_service(&server.configuration, ReverseProxy::new(db));
     proxy.add_tcp("0.0.0.0:8080");
     server.add_service(proxy);
     server.run_forever();
