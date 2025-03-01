@@ -1,2 +1,3 @@
 /target
 gatekeeper_config
+**/generated/**

@@ -1,0 +1,15 @@
+syntax = "proto3";
+package gatekeeper.service_registry.v1;
+option go_package = "/service_registry/v1";
+
+message Empty {}
+
+message NewService {
+    string serviceName = 1;
+    repeated string tags = 2;
+    string endpoint = 3;
+}
+
+service ServiceRegistry {
+    rpc RegisterService(NewService) returns (Empty);
+}

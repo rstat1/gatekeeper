@@ -15,16 +15,18 @@ use tracing::{debug, info};
 
 use gatekeeper::data::*;
 use gatekeeper::gw::ReverseProxy;
+use gatekeeper::services::service_registry::{SRImpl, ServiceRegistryService};
 use gatekeeper::vault::{DBCredentials, GatekeeperVaultClient};
 
 fn main() {
     tracing_subscriber::fmt::init();
     info!("starting gatekeeper...");
-    let mut server = Server::new(None).unwrap();
-    let conf: SystemConfiguration;
-    let vault: Arc<GatekeeperVaultClient>;
     let db: DataStore;
     let dbCreds: DBCredentials;
+    let conf: SystemConfiguration;
+    let vault: Arc<GatekeeperVaultClient>;
+    let srImpl: SRImpl;
+    let mut server = Server::new(None).unwrap();
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 
     server.bootstrap();
@@ -57,6 +59,13 @@ fn main() {
     }
 
     debug!("mongodb client init");
+
+    srImpl = SRImpl::new(&format!("redis://{}", conf.redisServerAddress));
+    let srs = async {
+        let addr = "0.0.0.0:2000".parse().unwrap();
+        ServiceRegistryService::InitAndServe(addr, Arc::new(srImpl)).await;
+    };
+    rt.block_on(srs);
 
     let mut proxy = pingora_proxy::http_proxy_service(&server.configuration, ReverseProxy::new(db));
     proxy.add_tcp("0.0.0.0:8080");

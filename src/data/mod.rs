@@ -9,11 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use mongodb::bson::doc;
 use mongodb::sync::{Client, Collection};
-use tracing::{debug, info};
 
 pub struct DataStore {
     collectionName: String,
-    mongoEP: String,
     pub client: Client,
 }
 
@@ -25,6 +23,8 @@ pub struct SystemConfiguration {
     pub mongoEndpoint: String,
     #[serde(rename = "dbName")]
     pub collectionName: String,
+    #[serde(rename = "redisAddr")]
+    pub redisServerAddress: String,
 }
 
 /// A ServiceDomain is used to assign services to a base domain.
@@ -42,7 +42,6 @@ pub struct ServiceDomain {
 pub struct Service {
     pub name: String,
     pub internal: bool,
-    pub endpoints: Vec<Endpoint>,
     pub securityPolices: Option<Vec<String>>,
 }
 
@@ -58,7 +57,7 @@ impl DataStore {
 
         let c = Client::with_uri_str(mongoEP.clone());
         match c {
-            Ok(c) => Ok(DataStore { client: c, collectionName: collection, mongoEP: mongoEP }),
+            Ok(c) => Ok(DataStore { client: c, collectionName: collection }),
             Err(e) => Err(e),
         }
     }

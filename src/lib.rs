@@ -12,3 +12,4 @@
 pub mod data;
 pub mod gw;
 pub mod vault;
+pub mod services;
