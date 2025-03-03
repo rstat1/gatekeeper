@@ -1,0 +1,56 @@
+syntax = "proto3";
+package gatekeeper.api.v1;
+option go_package = "/api/v1";
+
+import "types.proto";
+
+message ID {
+    string id = 1;
+}
+
+message ServiceDomain {
+    string base = 1;
+    repeated string attachedServices = 2;
+    repeated string domainSecurityPolicies = 4;
+}    
+message Service {
+    string name = 1;
+    bool internal = 2;
+    bool isFrostService = 3;
+    string healthCheckRoute = 4;
+    repeated string securityPolicies = 5;
+}    
+
+message NewServiceRequest {
+    Service svcDetails = 1;
+    string parentServiceDomain = 2;
+}    
+message NewDomainRequest {
+    ServiceDomain domain = 1;
+}    
+
+message ByNameRequest {
+    string name = 1;
+}
+message ServiceByNameResponse {
+    string id = 1;
+    Service service = 2;
+}
+message DomainByNameResponse {
+    string id = 1;
+    ServiceDomain domain = 2;
+}
+
+
+service APIService {
+    rpc NewService(NewServiceRequest) returns (ID);
+    rpc NewServiceDomain(NewDomainRequest) returns (ID);
+
+    rpc GetServiceByID(ID) returns (Service);
+    rpc GetDomainByID(ID) returns (ServiceDomain);    
+    rpc GetDomainByName(ByNameRequest) returns (DomainByNameResponse);
+    rpc GetServiceByName(ByNameRequest) returns (ServiceByNameResponse);
+
+    rpc DeleteDomain(ID) returns (gatekeeper.services.types.Empty);
+    rpc DeleteService(ID) returns (gatekeeper.services.types.Empty);
+}

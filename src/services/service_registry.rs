@@ -5,59 +5,79 @@
 * found in the included LICENSE file.
 */
 
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 
-use redis::Commands;
-use service_registry_server::{ServiceRegistry, ServiceRegistryServer};
-use tonic::{transport::Server, Request, Response, Status};
 use tracing::{debug, error};
 
-include!("proto/service_registry/generated/gatekeeper.service_registry.v1.rs");
-const FILE_DESCRIPTOR_SET: &[u8] = include_bytes!("proto/service_registry/generated/svcregistry_descriptor.bin");
+use crate::data::{self, Domain};
 
-#[derive(Debug)]
-pub struct SRImpl {
-    redisClient: redis::Client,
+pub struct ServiceRegistryImpl {
+    domains: Vec<Domain>,
+    db: Arc<data::DataStore>,
+    epMap: Mutex<HashMap<String, Vec<SocketAddr>>>,
 }
 
-#[derive(Debug)]
-pub struct ServiceRegistryService {
-    svcRegistryImpl: Arc<SRImpl>,
-}
-
-impl ServiceRegistryService {
-    pub async fn InitAndServe(addr: SocketAddr, sr: Arc<SRImpl>) {
-        let svcReg = ServiceRegistryServer::new(ServiceRegistryService { svcRegistryImpl: Arc::clone(&sr) });
-        let reflectSvc = tonic_reflection::server::Builder::configure().register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET).build_v1().unwrap();
-        Server::builder().add_service(svcReg).add_service(reflectSvc).serve(addr).await;
-    }
-}
-
-#[tonic::async_trait]
-impl ServiceRegistry for ServiceRegistryService {
-    async fn register_service(&self, request: Request<NewService>) -> Result<Response<Empty>, Status> {
-        let reply = Empty {};
-
-        let svcInfo = request.get_ref();
-        self.svcRegistryImpl.RegisterService(&svcInfo.service_name, &svcInfo.endpoint);
-
-        Ok(Response::new(reply))
-    }
-}
-
-impl SRImpl {
-    pub fn new(redisAddr: &String) -> Self {
-        let rc = redis::Client::open(redisAddr.clone());
-        match rc {
-            Ok(c) => SRImpl { redisClient: c },
-            Err(e) => panic!("{:?}", e),
+impl ServiceRegistryImpl {
+    pub async fn new(data: Arc<data::DataStore>) -> Result<Self, String> {
+        match data.GetDomains().await {
+            Ok(d) => Ok(ServiceRegistryImpl {
+                db: data,
+                domains: Vec::from(d),
+                epMap: Mutex::new(HashMap::new()),
+            }),
+            Err(e) => Err(e.to_string()),
         }
     }
-    pub fn RegisterService(&self, name: &String, ep: &String) {
-        let svcKey = format!("gksr:svcep:{}", name);
-        let mut con = self.redisClient.get_connection().unwrap();
 
-        redis::cmd("SET").arg(svcKey).arg(ep).exec(&mut con).expect("failed register service");
-        debug!("added new service {} at endpoint {}", name, ep);
+    pub fn IsValidDomain(&self, domain: &String) -> bool {
+        for d in &self.domains {
+            if d.base == *domain {
+                return true;
+            }
+        }
+        debug!("didn't find a valid Doman for {}", domain);
+        false
+    }
+
+    pub fn RegisterServiceEndpoint(&self, name: &String, ep: &String) {
+        let epMap = self.epMap.try_lock();
+
+        match epMap {
+            Ok(mut m) => {
+                if let Some(eps) = m.get_mut(name) {
+                    debug!("added endpoint {} to service {}", ep, name);
+                    eps.push(ep.parse().unwrap());
+                } else {
+                    debug!("added new service {} at {}", name, ep);
+                    m.insert(name.clone(), vec![ep.parse().unwrap()]);
+                }
+            }
+            Err(e) => {
+                error!("{:?}", e)
+            }
+        }
+    }
+    pub fn GetServiceEndpoint(&self, name: &String) -> Option<SocketAddr> {
+        let epMap = self.epMap.try_lock();
+        match epMap {
+            Ok(m) => {
+                if let Some(eps) = m.get(name) {
+                    if eps.len() > 1 {
+                        //TODO: Randome selection?
+                        return Some(eps[0].clone());
+                    }
+                    return Some(eps[0].clone());
+                }
+                return None;
+            }
+            Err(e) => {
+                error!("{:?}", e)
+            }
+        }
+        None
     }
 }

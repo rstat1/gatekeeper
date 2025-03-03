@@ -1,3 +1,4 @@
 /target
 gatekeeper_config
 **/generated/**
+**/certs/**

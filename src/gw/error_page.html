@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang=en>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,height=device-height,initial-scale=1.0">
+  <title>Gatekeeper Error: ##ERROR_CODE##</title>
+  <link href="https://fonts.googleapis.com/css?family=Roboto" rel="stylesheet">
+  <style>
+    :root {
+      --color-grey-300: #dadce0;
+      --color-grey-500: #9aa0a6;
+      --color-grey-600: #80868b;
+      --color-grey-700: #5f6368;
+      --color-grey-800: #3c4043;
+      --color-grey-900: #202124;
+
+      --color-blue-50: #e8f0fe;
+      --color-blue-100: #d2e3fc;
+      --color-blue-200: #aecbfa;
+      --color-blue-300: #84b4f8;
+      --color-blue-500: #4285f4;
+      --color-blue-600: #1a73e8;
+      --color-blue-700: #1967d2;
+    }
+
+    @media (max-width: 700px) {
+      :root {
+        --card-width: 100%;
+      }
+      #card-container {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+      }
+      #card {
+        display: flow-root;
+      }
+      .card-content {
+        padding-top: 32px;
+      }
+      .footer {
+        margin-bottom: 24px;
+      }
+      #clipboard-tooltip {
+        left: 8px;
+        right: 8px;
+      }
+    }
+    @media (min-width: 701px) and (max-height: 700px) {
+      #card-container {
+        top: 20px !important;
+        transform: translate(-50%, 0%) !important;
+      }
+    }
+    @media (min-width: 701px) {
+      :root {
+        --card-width: 640px;
+      }
+      #card {
+        border-radius: 8px;
+        box-shadow: 0 1px 2px 0px rgba(60, 64, 67, 0.3),
+                    0 1px 3px 1px rgba(60, 64, 67, 0.15);
+      }
+      #card-container {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+      }
+      .card-content {
+        padding: 48px 40px 48px 40px;
+      }
+      #clipboard-tooltip {
+        left: 24px;
+        min-width: 360px;
+      }
+    }
+
+    ::-webkit-scrollbar {
+      width: 16px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      border-radius: 16px;
+      border: solid 4px rgba(0, 0, 0, 0);
+      background: var(--color-grey-300);
+      background-clip: padding-box;
+    }
+
+    html {
+      font: 14px/22px 'Roboto', arial;
+    }
+    #card {
+      width: var(--card-width);
+      height: var(--card-height);
+
+      color: var(--color-grey-700);
+    }
+    .card-content {
+      height: calc(100% - 100px);
+    }
+    .footer {
+      padding-top: 24px;
+      text-align: right;
+      font-size: 14px;
+      line-height: 20px;
+      font-weight: 600;
+    }
+    .gk {
+      font-weight: normal;
+      color: var(--color-grey-700);
+      font-size: 24px;
+      line-height: 22px;
+    }
+    .title {
+      color: var(--color-grey-800);
+      margin: 24px 0px 8px 0px;
+      font-size: 24px;
+      line-height: 32px;
+      font-weight: normal;
+    }
+    .description {
+      color: var(--color-grey-800);
+      margin: 0px 0px 24px 0px;
+
+      font-size: 14px;
+      line-height: 24px;
+      font-weight: normal;
+    }
+    .description > ul {
+      text-align: left;
+    }
+    #fix-this {
+      display: inline-block;
+      background-color: var(--color-blue-600);
+      margin: 8px 0px 16px 0px;
+      min-width: 64px;
+      padding: 10px 24px 10px 24px;
+      border-radius: 4px;
+      color: white;
+
+      font-size: 14px;
+      line-height: 16px;
+      font-weight: 600;
+    }
+    a {
+      text-decoration: none;
+    }
+    .details-container {
+      width: 100%;
+      height: 60%;
+      font-size: 14px;
+      line-height: 16px;
+    }
+    .details-button-container {
+      display: inline-grid;
+      font-weight: 600;
+      margin-top: 10px;
+      margin-left: 24px;
+      margin-right: 24px;
+      overflow: auto;
+    }
+    .details-header {
+      float: left;
+      padding-left: 0px !important;
+      width: 75%;
+    }
+    .details-button-container > span {
+      padding: 8px;
+      margin-top: 8px;
+      margin-bottom: 8px;
+    }
+    #copy-text {
+      float: right;
+      color: var(--color-blue-600);
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    #copy-text:hover {
+      background-color: var(--color-blue-50);
+    }
+    .center {
+      text-align: center;
+    }
+    #error-details {
+      color: var(--color-grey-500);
+      font-weight: normal;
+      margin-top: 8px;
+      margin-left: 24px;
+      width: inherit;
+      word-wrap: break-word;
+    }
+    .logo {
+      border: 0;
+      margin: 0px auto;
+      margin-bottom: 0.325em;
+      width: 120px;
+      height: 120px;
+      display: block;
+    }
+    .footer-link {
+      color: var(--color-grey-700);
+      margin-left: 24px;
+    }
+    .footer-link:hover {
+      text-decoration: underline;
+    }
+    #clipboard-tooltip {
+      display: none;
+      border-radius: 4px;
+      position: fixed;
+      z-index: 2;
+      top: 100%;
+      transform: translateY(calc(-100% - 24px));
+      background: var(--color-grey-900);
+      color: white;
+      padding: 14px 16px 14px 8px;
+
+      box-shadow: 0 1px 3px 0px rgba(60, 64, 67, 0.3),
+                  0 4px 8px 0px rgba(60, 64, 67, 0.15);
+    }
+    .check-mark {
+      padding-right: 12px;
+      font-size: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div id="card-container">
+    <div id="card">
+      <div class="card-content">
+        <div class="center">
+          <span class="logo">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1492.9 1257.3"><defs><clipPath id="e"><path d="M1153 1435h218v208h-218z"/></clipPath><clipPath id="f"><use href="#a"/></clipPath><clipPath id="g"><use href="#a"/></clipPath><clipPath id="i"><path d="M1138 1429h248v225h-248z"/></clipPath><clipPath id="j"><use href="#b"/></clipPath><clipPath id="k"><use href="#b"/></clipPath><clipPath id="m"><path d="M681 1435h218v208H681Z"/></clipPath><clipPath id="n"><use href="#c"/></clipPath><clipPath id="o"><use href="#c"/></clipPath><clipPath id="q"><path d="M667 1429h247v225H667Z"/></clipPath><clipPath id="r"><use href="#d"/></clipPath><clipPath id="s"><use href="#d"/></clipPath><linearGradient id="h" x1=".2" x2=".6" gradientTransform="rotate(90 -27 1289.3)scale(575.38)" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ed2724"/><stop offset="0" stop-color="#ee2724"/><stop offset="0" stop-color="#ee2824"/><stop offset="0" stop-color="#ee2924"/><stop offset=".1" stop-color="#ee2924"/><stop offset=".1" stop-color="#ee2a24"/><stop offset=".1" stop-color="#ee2b24"/><stop offset=".1" stop-color="#ee2b24"/><stop offset=".1" stop-color="#ee2c24"/><stop offset=".1" stop-color="#ee2d24"/><stop offset=".2" stop-color="#ee2e24"/><stop offset=".2" stop-color="#ee2f24"/><stop offset=".2" stop-color="#ee2f24"/><stop offset=".2" stop-color="#ee3024"/><stop offset=".2" stop-color="#ee3124"/><stop offset=".2" stop-color="#ee3224"/><stop offset=".2" stop-color="#ee3224"/><stop offset=".3" stop-color="#ef3324"/><stop offset=".3" stop-color="#ef3424"/><stop offset=".3" stop-color="#ef3424"/><stop offset=".3" stop-color="#ef3524"/><stop offset=".3" stop-color="#ef3524"/><stop offset=".3" stop-color="#ef3625"/><stop offset=".3" stop-color="#ef3625"/><stop offset=".3" stop-color="#ef3725"/><stop offset=".3" stop-color="#ef3825"/><stop offset=".3" stop-color="#ef3825"/><stop offset=".4" stop-color="#ef3925"/><stop offset=".4" stop-color="#ee3a25"/><stop offset=".4" stop-color="#ee3a25"/><stop offset=".4" stop-color="#ee3b25"/><stop offset=".4" stop-color="#ee3b25"/><stop offset=".4" stop-color="#ef3c25"/><stop offset=".4" stop-color="#ef3c26"/><stop offset=".4" stop-color="#ef3d26"/><stop offset=".4" stop-color="#ef3e26"/><stop offset=".4" stop-color="#ef3e26"/><stop offset=".4" stop-color="#ef3f26"/><stop offset=".5" stop-color="#ef3f26"/><stop offset=".5" stop-color="#ef4026"/><stop offset=".5" stop-color="#ef4026"/><stop offset=".5" stop-color="#ef4126"/><stop offset=".5" stop-color="#ef4226"/><stop offset=".5" stop-color="#ef4226"/><stop offset=".5" stop-color="#ef4326"/><stop offset=".5" stop-color="#ef4326"/><stop offset=".5" stop-color="#ef4426"/><stop offset=".5" stop-color="#ef4526"/><stop offset=".5" stop-color="#ef4526"/><stop offset=".5" stop-color="#ef4627"/><stop offset=".5" stop-color="#ef4627"/><stop offset=".6" stop-color="#ef4727"/><stop offset=".6" stop-color="#ef4827"/><stop offset=".6" stop-color="#f04827"/><stop offset=".6" stop-color="#f04927"/><stop offset=".6" stop-color="#f04927"/><stop offset=".6" stop-color="#f04a27"/><stop offset=".6" stop-color="#f04a27"/><stop offset=".6" stop-color="#f04b27"/><stop offset=".6" stop-color="#f04c27"/><stop offset=".6" stop-color="#f04c27"/><stop offset=".6" stop-color="#f04d27"/><stop offset=".6" stop-color="#f04e28"/><stop offset=".7" stop-color="#f04e28"/><stop offset=".7" stop-color="#f04f28"/><stop offset=".7" stop-color="#f04f28"/><stop offset=".7" stop-color="#f05028"/><stop offset=".7" stop-color="#f05128"/><stop offset=".7" stop-color="#f05128"/><stop offset=".7" stop-color="#f05228"/><stop offset=".7" stop-color="#f05228"/><stop offset=".7" stop-color="#f05328"/><stop offset=".7" stop-color="#f15428"/><stop offset=".7" stop-color="#f15528"/><stop offset=".7" stop-color="#f15528"/><stop offset=".8" stop-color="#f15628"/><stop offset=".8" stop-color="#f15729"/><stop offset=".8" stop-color="#f15729"/><stop offset=".8" stop-color="#f15829"/><stop offset=".8" stop-color="#f15929"/><stop offset=".8" stop-color="#f15929"/><stop offset=".8" stop-color="#f15a2a"/><stop offset=".8" stop-color="#f15b2a"/><stop offset=".8" stop-color="#f15b2a"/><stop offset=".8" stop-color="#f15c2a"/><stop offset=".8" stop-color="#f15c2a"/><stop offset=".8" stop-color="#f15d2a"/><stop offset=".8" stop-color="#f15e2a"/><stop offset=".9" stop-color="#f15e2a"/><stop offset=".9" stop-color="#f15f2a"/><stop offset=".9" stop-color="#f2602a"/><stop offset=".9" stop-color="#f2612a"/><stop offset=".9" stop-color="#f2612b"/><stop offset=".9" stop-color="#f2622b"/><stop offset=".9" stop-color="#f2632b"/><stop offset=".9" stop-color="#f2632b"/><stop offset=".9" stop-color="#f2642b"/><stop offset=".9" stop-color="#f2652c"/><stop offset=".9" stop-color="#f2662c"/><stop offset=".9" stop-color="#f2672c"/><stop offset=".9" stop-color="#f2672c"/><stop offset="1" stop-color="#f2682c"/><stop offset="1" stop-color="#f2682c"/><stop offset="1" stop-color="#f2692c"/><stop offset="1" stop-color="#f26a2c"/><stop offset="1" stop-color="#f26b2d"/><stop offset="1" stop-color="#f26b2d"/><stop offset="1" stop-color="#f36c2d"/></linearGradient><linearGradient id="l" x1=".1" x2=".7" gradientTransform="rotate(90 -57.2 1319.5)scale(377.42)" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ec1a2d"/><stop offset=".3" stop-color="#ec1a2d"/><stop offset=".3" stop-color="#ec1a2d"/><stop offset=".3" stop-color="#ec1a2d"/><stop offset=".4" stop-color="#ed1a2d"/><stop offset=".4" stop-color="#ed1b2d"/><stop offset=".4" stop-color="#ed1c2d"/><stop offset=".4" stop-color="#ed1c2d"/><stop offset=".5" stop-color="#ed1d2d"/><stop offset=".5" stop-color="#ed1e2d"/><stop offset=".5" stop-color="#ed1e2d"/><stop offset=".5" stop-color="#ed1f2d"/><stop offset=".5" stop-color="#ed202d"/><stop offset=".5" stop-color="#ed202d"/><stop offset=".5" stop-color="#ed212c"/><stop offset=".5" stop-color="#ed222c"/><stop offset=".5" stop-color="#ed222c"/><stop offset=".6" stop-color="#ed232c"/><stop offset=".6" stop-color="#ed232c"/><stop offset=".6" stop-color="#ed242c"/><stop offset=".6" stop-color="#ed252c"/><stop offset=".6" stop-color="#ed252c"/><stop offset=".6" stop-color="#ed262c"/><stop offset=".6" stop-color="#ed272c"/><stop offset=".6" stop-color="#ed282c"/><stop offset=".6" stop-color="#ed282c"/><stop offset=".6" stop-color="#ed292c"/><stop offset=".6" stop-color="#ed292c"/><stop offset=".6" stop-color="#ed2a2c"/><stop offset=".7" stop-color="#ed2a2c"/><stop offset=".7" stop-color="#ed2b2b"/><stop offset=".7" stop-color="#ed2c2b"/><stop offset=".7" stop-color="#ed2d2b"/><stop offset=".7" stop-color="#ed2d2b"/><stop offset=".7" stop-color="#ed2e2b"/><stop offset=".7" stop-color="#ed2f2b"/><stop offset=".7" stop-color="#ee302b"/><stop offset=".7" stop-color="#ee302b"/><stop offset=".7" stop-color="#ee312b"/><stop offset=".7" stop-color="#ee322a"/><stop offset=".7" stop-color="#ee332a"/><stop offset=".8" stop-color="#ee332a"/><stop offset=".8" stop-color="#ee342a"/><stop offset=".8" stop-color="#ee352a"/><stop offset=".8" stop-color="#ee352a"/><stop offset=".8" stop-color="#ee362a"/><stop offset=".8" stop-color="#ee372a"/><stop offset=".8" stop-color="#ee372a"/><stop offset=".8" stop-color="#ee382a"/><stop offset=".8" stop-color="#ee382a"/><stop offset=".8" stop-color="#ee392a"/><stop offset=".8" stop-color="#ee392a"/><stop offset=".8" stop-color="#ee3a2a"/><stop offset=".8" stop-color="#ee3b2a"/><stop offset=".8" stop-color="#ef3b29"/><stop offset=".8" stop-color="#ef3c29"/><stop offset=".8" stop-color="#ef3d29"/><stop offset=".8" stop-color="#ef3d29"/><stop offset=".8" stop-color="#ef3e29"/><stop offset=".8" stop-color="#ef3f29"/><stop offset=".9" stop-color="#ef3f29"/><stop offset=".9" stop-color="#ef4029"/><stop offset=".9" stop-color="#ef4029"/><stop offset=".9" stop-color="#ef4129"/><stop offset=".9" stop-color="#ef4129"/><stop offset=".9" stop-color="#ef4229"/><stop offset=".9" stop-color="#ef4229"/><stop offset=".9" stop-color="#ee4329"/><stop offset=".9" stop-color="#ee4429"/><stop offset=".9" stop-color="#ee4429"/><stop offset=".9" stop-color="#ee4529"/><stop offset=".9" stop-color="#ef4529"/><stop offset=".9" stop-color="#ef4629"/><stop offset=".9" stop-color="#ef4628"/><stop offset=".9" stop-color="#ef4728"/><stop offset=".9" stop-color="#ef4828"/><stop offset=".9" stop-color="#ef4828"/><stop offset=".9" stop-color="#ef4828"/><stop offset=".9" stop-color="#ef4928"/><stop offset=".9" stop-color="#ef4a28"/><stop offset=".9" stop-color="#ef4b28"/><stop offset=".9" stop-color="#ef4b28"/><stop offset="1" stop-color="#ef4c28"/><stop offset="1" stop-color="#ef4c28"/><stop offset="1" stop-color="#ef4d28"/><stop offset="1" stop-color="#ef4d28"/><stop offset="1" stop-color="#ef4e28"/><stop offset="1" stop-color="#ef4e28"/><stop offset="1" stop-color="#ef4f28"/><stop offset="1" stop-color="#ef5028"/><stop offset="1" stop-color="#ef5027"/><stop offset="1" stop-color="#ef5127"/><stop offset="1" stop-color="#ef5127"/><stop offset="1" stop-color="#f05227"/><stop offset="1" stop-color="#f05227"/></linearGradient><linearGradient id="p" x1=".2" x2=".6" gradientTransform="rotate(90 -262.8 1053.2)scale(575.38)" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ed2724"/><stop offset="0" stop-color="#ee2724"/><stop offset="0" stop-color="#ee2824"/><stop offset="0" stop-color="#ee2924"/><stop offset=".1" stop-color="#ee2924"/><stop offset=".1" stop-color="#ee2a24"/><stop offset=".1" stop-color="#ee2b24"/><stop offset=".1" stop-color="#ee2b24"/><stop offset=".1" stop-color="#ee2c24"/><stop offset=".1" stop-color="#ee2d24"/><stop offset=".2" stop-color="#ee2e24"/><stop offset=".2" stop-color="#ee2f24"/><stop offset=".2" stop-color="#ee2f24"/><stop offset=".2" stop-color="#ee3024"/><stop offset=".2" stop-color="#ee3124"/><stop offset=".2" stop-color="#ee3224"/><stop offset=".2" stop-color="#ee3224"/><stop offset=".3" stop-color="#ef3324"/><stop offset=".3" stop-color="#ef3424"/><stop offset=".3" stop-color="#ef3424"/><stop offset=".3" stop-color="#ef3524"/><stop offset=".3" stop-color="#ef3524"/><stop offset=".3" stop-color="#ef3625"/><stop offset=".3" stop-color="#ef3625"/><stop offset=".3" stop-color="#ef3725"/><stop offset=".3" stop-color="#ef3825"/><stop offset=".3" stop-color="#ef3825"/><stop offset=".4" stop-color="#ef3925"/><stop offset=".4" stop-color="#ee3a25"/><stop offset=".4" stop-color="#ee3a25"/><stop offset=".4" stop-color="#ee3b25"/><stop offset=".4" stop-color="#ee3b25"/><stop offset=".4" stop-color="#ef3c25"/><stop offset=".4" stop-color="#ef3c26"/><stop offset=".4" stop-color="#ef3d26"/><stop offset=".4" stop-color="#ef3e26"/><stop offset=".4" stop-color="#ef3e26"/><stop offset=".4" stop-color="#ef3f26"/><stop offset=".5" stop-color="#ef3f26"/><stop offset=".5" stop-color="#ef4026"/><stop offset=".5" stop-color="#ef4026"/><stop offset=".5" stop-color="#ef4126"/><stop offset=".5" stop-color="#ef4226"/><stop offset=".5" stop-color="#ef4226"/><stop offset=".5" stop-color="#ef4326"/><stop offset=".5" stop-color="#ef4326"/><stop offset=".5" stop-color="#ef4426"/><stop offset=".5" stop-color="#ef4526"/><stop offset=".5" stop-color="#ef4526"/><stop offset=".5" stop-color="#ef4627"/><stop offset=".5" stop-color="#ef4627"/><stop offset=".6" stop-color="#ef4727"/><stop offset=".6" stop-color="#ef4827"/><stop offset=".6" stop-color="#f04827"/><stop offset=".6" stop-color="#f04927"/><stop offset=".6" stop-color="#f04927"/><stop offset=".6" stop-color="#f04a27"/><stop offset=".6" stop-color="#f04a27"/><stop offset=".6" stop-color="#f04b27"/><stop offset=".6" stop-color="#f04c27"/><stop offset=".6" stop-color="#f04c27"/><stop offset=".6" stop-color="#f04d27"/><stop offset=".6" stop-color="#f04e28"/><stop offset=".7" stop-color="#f04e28"/><stop offset=".7" stop-color="#f04f28"/><stop offset=".7" stop-color="#f04f28"/><stop offset=".7" stop-color="#f05028"/><stop offset=".7" stop-color="#f05128"/><stop offset=".7" stop-color="#f05128"/><stop offset=".7" stop-color="#f05228"/><stop offset=".7" stop-color="#f05228"/><stop offset=".7" stop-color="#f05328"/><stop offset=".7" stop-color="#f15428"/><stop offset=".7" stop-color="#f15528"/><stop offset=".7" stop-color="#f15528"/><stop offset=".8" stop-color="#f15628"/><stop offset=".8" stop-color="#f15729"/><stop offset=".8" stop-color="#f15729"/><stop offset=".8" stop-color="#f15829"/><stop offset=".8" stop-color="#f15929"/><stop offset=".8" stop-color="#f15929"/><stop offset=".8" stop-color="#f15a2a"/><stop offset=".8" stop-color="#f15b2a"/><stop offset=".8" stop-color="#f15b2a"/><stop offset=".8" stop-color="#f15c2a"/><stop offset=".8" stop-color="#f15c2a"/><stop offset=".8" stop-color="#f15d2a"/><stop offset=".8" stop-color="#f15e2a"/><stop offset=".9" stop-color="#f15e2a"/><stop offset=".9" stop-color="#f15f2a"/><stop offset=".9" stop-color="#f2602a"/><stop offset=".9" stop-color="#f2612a"/><stop offset=".9" stop-color="#f2612b"/><stop offset=".9" stop-color="#f2622b"/><stop offset=".9" stop-color="#f2632b"/><stop offset=".9" stop-color="#f2632b"/><stop offset=".9" stop-color="#f2642b"/><stop offset=".9" stop-color="#f2652c"/><stop offset=".9" stop-color="#f2662c"/><stop offset=".9" stop-color="#f2672c"/><stop offset=".9" stop-color="#f2672c"/><stop offset="1" stop-color="#f2682c"/><stop offset="1" stop-color="#f2682c"/><stop offset="1" stop-color="#f2692c"/><stop offset="1" stop-color="#f26a2c"/><stop offset="1" stop-color="#f26b2d"/><stop offset="1" stop-color="#f26b2d"/><stop offset="1" stop-color="#f36c2d"/></linearGradient><linearGradient id="t" x1=".1" x2=".7" gradientTransform="rotate(90 -293 1083.4)scale(377.42)" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ec1a2d"/><stop offset=".3" stop-color="#ec1a2d"/><stop offset=".3" stop-color="#ec1a2d"/><stop offset=".3" stop-color="#ec1a2d"/><stop offset=".4" stop-color="#ed1a2d"/><stop offset=".4" stop-color="#ed1b2d"/><stop offset=".4" stop-color="#ed1c2d"/><stop offset=".4" stop-color="#ed1c2d"/><stop offset=".5" stop-color="#ed1d2d"/><stop offset=".5" stop-color="#ed1e2d"/><stop offset=".5" stop-color="#ed1e2d"/><stop offset=".5" stop-color="#ed1f2d"/><stop offset=".5" stop-color="#ed202d"/><stop offset=".5" stop-color="#ed202d"/><stop offset=".5" stop-color="#ed212c"/><stop offset=".5" stop-color="#ed222c"/><stop offset=".5" stop-color="#ed222c"/><stop offset=".6" stop-color="#ed232c"/><stop offset=".6" stop-color="#ed232c"/><stop offset=".6" stop-color="#ed242c"/><stop offset=".6" stop-color="#ed252c"/><stop offset=".6" stop-color="#ed252c"/><stop offset=".6" stop-color="#ed262c"/><stop offset=".6" stop-color="#ed272c"/><stop offset=".6" stop-color="#ed282c"/><stop offset=".6" stop-color="#ed282c"/><stop offset=".6" stop-color="#ed292c"/><stop offset=".6" stop-color="#ed292c"/><stop offset=".6" stop-color="#ed2a2c"/><stop offset=".7" stop-color="#ed2a2c"/><stop offset=".7" stop-color="#ed2b2b"/><stop offset=".7" stop-color="#ed2c2b"/><stop offset=".7" stop-color="#ed2d2b"/><stop offset=".7" stop-color="#ed2d2b"/><stop offset=".7" stop-color="#ed2e2b"/><stop offset=".7" stop-color="#ed2f2b"/><stop offset=".7" stop-color="#ee302b"/><stop offset=".7" stop-color="#ee302b"/><stop offset=".7" stop-color="#ee312b"/><stop offset=".7" stop-color="#ee322a"/><stop offset=".7" stop-color="#ee332a"/><stop offset=".8" stop-color="#ee332a"/><stop offset=".8" stop-color="#ee342a"/><stop offset=".8" stop-color="#ee352a"/><stop offset=".8" stop-color="#ee352a"/><stop offset=".8" stop-color="#ee362a"/><stop offset=".8" stop-color="#ee372a"/><stop offset=".8" stop-color="#ee372a"/><stop offset=".8" stop-color="#ee382a"/><stop offset=".8" stop-color="#ee382a"/><stop offset=".8" stop-color="#ee392a"/><stop offset=".8" stop-color="#ee392a"/><stop offset=".8" stop-color="#ee3a2a"/><stop offset=".8" stop-color="#ee3b2a"/><stop offset=".8" stop-color="#ef3b29"/><stop offset=".8" stop-color="#ef3c29"/><stop offset=".8" stop-color="#ef3d29"/><stop offset=".8" stop-color="#ef3d29"/><stop offset=".8" stop-color="#ef3e29"/><stop offset=".8" stop-color="#ef3f29"/><stop offset=".9" stop-color="#ef3f29"/><stop offset=".9" stop-color="#ef4029"/><stop offset=".9" stop-color="#ef4029"/><stop offset=".9" stop-color="#ef4129"/><stop offset=".9" stop-color="#ef4129"/><stop offset=".9" stop-color="#ef4229"/><stop offset=".9" stop-color="#ef4229"/><stop offset=".9" stop-color="#ee4329"/><stop offset=".9" stop-color="#ee4429"/><stop offset=".9" stop-color="#ee4429"/><stop offset=".9" stop-color="#ee4529"/><stop offset=".9" stop-color="#ef4529"/><stop offset=".9" stop-color="#ef4629"/><stop offset=".9" stop-color="#ef4628"/><stop offset=".9" stop-color="#ef4728"/><stop offset=".9" stop-color="#ef4828"/><stop offset=".9" stop-color="#ef4828"/><stop offset=".9" stop-color="#ef4828"/><stop offset=".9" stop-color="#ef4928"/><stop offset=".9" stop-color="#ef4a28"/><stop offset=".9" stop-color="#ef4b28"/><stop offset=".9" stop-color="#ef4b28"/><stop offset="1" stop-color="#ef4c28"/><stop offset="1" stop-color="#ef4c28"/><stop offset="1" stop-color="#ef4d28"/><stop offset="1" stop-color="#ef4d28"/><stop offset="1" stop-color="#ef4e28"/><stop offset="1" stop-color="#ef4e28"/><stop offset="1" stop-color="#ef4f28"/><stop offset="1" stop-color="#ef5028"/><stop offset="1" stop-color="#ef5027"/><stop offset="1" stop-color="#ef5127"/><stop offset="1" stop-color="#ef5127"/><stop offset="1" stop-color="#f05227"/><stop offset="1" stop-color="#f05227"/></linearGradient><path id="a" d="M1344.3 1505.7c4.9 30.9 26.5 39.9 26.5 39.9-14.6-33.9-18.5-109.7-18.5-109.7h-180s-4 75.8-18.5 109.7c0 0 21.6-9 26.4-39.9 0 0 4.3 62.5-26.4 90.3a27 27 0 0 0 15.9-4.4c15.3-9.9 19.8-32.1 20.5-35.8a200 200 0 0 1-1.2 42 181 181 0 0 1-12 44.9 52 52 0 0 0 19-14.7c20.6-24.8 19.8-63.5 19.6-70 2.4 6.2 5 14.1 6.9 23.5a163 163 0 0 1 3 39.3 47 47 0 0 0 17.3-21.6 81 81 0 0 0 2.5-49.5 68 68 0 0 1 16.7 38.4l.3 2.4a78 78 0 0 1 1.8-10.7 69 69 0 0 1 15.1-30 81 81 0 0 0 2.5 49.4 48 48 0 0 0 17.2 21.6 163 163 0 0 1 10-62.8c-.2 6.5-1 45.2 19.7 70 6.5 8 13.5 12.2 19 14.7a174 174 0 0 1-12-45 201 201 0 0 1-1.3-42c.7 3.8 5.2 26 20.5 35.9a27 27 0 0 0 16 4.4c-30.8-27.8-26.5-90.3-26.5-90.3"/><path id="b" d="m1192.1 1520.9 2.6 34.2a207 207 0 0 1-7.9 74.4q3.3-2.9 6.1-6.3c18-21.6 18.4-55.1 18-64.9l-.8-27.7 9.5 24.4q4.6 12 7.2 24.8a170 170 0 0 1 3.4 29.7c3-3.2 6.2-7.6 8.6-13.5 8.2-19.3 3.3-40 2.2-44l-6-21.9 13.1 14.7a74 74 0 0 1 14.1 24.5c4-11.6 9.7-19.6 14.1-24.5l13.1-14.7-6 22a73 73 0 0 0 2.2 44 46 46 0 0 0 8.6 13.4 169 169 0 0 1 10.7-54.5l9.4-24.4-.8 27.7c-.3 9.8 0 43.3 18 65q3 3.3 6.1 6.2-4.5-14.7-6.6-30.5-3-21.8-1.3-43.9l2.7-34.2 6.3 33.3c1 5.1 5 22 16.4 30.5q-9.9-17.4-13.6-43c-2.9-19.8-1.8-35.9-1.8-36.6l2.8-40.3 6.2 39.6c2 12.5 7.1 21 12 26.4a528 528 0 0 1-12.7-88.5h-171.6c-1 15.5-4.5 57.6-12.7 88.5 5-5.4 10-13.9 12-26.4l6.2-39.6 2.8 40.3c0 .7 1.1 16.8-1.7 36.6q-3.8 25.6-13.7 43c11.5-8.5 15.5-25.4 16.4-30.5zm165.3 133-11.3-5a57 57 0 0 1-20.6-16 99 99 0 0 1-19.4-47.8q-3.3 17.3-2.6 35.4l.4 10.8-7-4.6a53 53 0 0 1-19.2-24.2 79 79 0 0 1-5.8-31.3 68 68 0 0 0-4.8 17.8v.3l-.3 2.2-4.4 43.6-4.7-43.5q0-1.2-.3-2.3v-.5a74 74 0 0 0-4.8-17.6 80 80 0 0 1-5.9 31.3 53 53 0 0 1-19.2 24.2l-7 4.6.5-10.8q.7-18.2-2.6-35.4a99 99 0 0 1-19.5 47.8 57 57 0 0 1-20.6 16l-11.3 5 6-14.4a173 173 0 0 0 12.9-58c-3.4 6.1-8 12-14.3 16a31 31 0 0 1-18 5l-14.7-.6 12.3-11.2c15.4-14 21.3-37.9 23.4-56.7-8.5 13-19 17.5-19.6 17.8l-11.3 4.7 6-14.1c14-32.2 17.9-106.2 18-107l.2-5.8h188.6l.3 5.9c0 .7 4 74.7 17.9 106.9l6 14-11.3-4.6c-.6-.3-11-4.8-19.6-17.8 2.2 18.8 8 42.8 23.4 56.7l12.4 11.2-14.7.5q-9.7.4-18-5a45 45 0 0 1-14.3-15.8q.3 7.5 1.4 15 3.1 22.8 11.5 43z"/><path id="c" d="M872.4 1505.6c4.8 30.9 26.4 39.9 26.4 39.9-14.5-33.9-18.4-109.7-18.4-109.7h-180s-4 75.8-18.6 109.7c0 0 21.6-9 26.5-39.9 0 0 4.3 62.5-26.5 90.3a27 27 0 0 0 16-4.4c15.3-9.9 19.8-32.1 20.5-35.8.8 10.3 1 25-1.2 41.9a181 181 0 0 1-12 45 52 52 0 0 0 19-14.7c20.5-24.8 19.8-63.6 19.6-70a159 159 0 0 1 9.9 62.9A48 48 0 0 0 771 1599a81 81 0 0 0 2.5-49.5A68 68 0 0 1 790 1588q.3 1.2.3 2.5l.3-2.5a81 81 0 0 0 19.1 11.1 48 48 0 0 0 17.3 21.7 163 163 0 0 1 10-62.9c-.2 6.4-1 45.2 19.7 70 6.5 8 13.5 12.2 19 14.7-4.1-9.8-9.4-25.1-12.1-45-2.3-17-2-31.6-1.2-42 .7 3.8 5.2 26 20.5 35.9a27 27 0 0 0 16 4.4c-30.8-27.8-26.5-90.3-26.5-90.3"/><path id="d" d="m720.2 1520.7 2.6 34.2a207 207 0 0 1-7.9 74.4 52 52 0 0 0 6.1-6.3c18-21.6 18.4-55.1 18-64.9l-.8-27.7 9.5 24.4a155 155 0 0 1 10.6 54.5c3-3.2 6.2-7.6 8.7-13.5 8.1-19.3 3.2-40 2-44l-5.9-21.9 13.1 14.7c4.4 5 10 13 14.1 24.5 4-11.6 9.7-19.6 14.1-24.5l13.1-14.7-6 22c-1 4-6 24.6 2.2 44a45 45 0 0 0 8.6 13.4 169 169 0 0 1 10.7-54.5l9.4-24.4-.8 27.7c-.3 9.8 0 43.3 18 65q3 3.3 6.2 6.2-4.5-14.7-6.7-30.5-3-21.8-1.3-43.9l2.7-34.2 6.3 33.3c1 5.1 5 22 16.4 30.6q-9.9-17.4-13.6-43c-2.9-19.9-1.8-36-1.8-36.7l2.8-40.3 6.2 39.6c2 12.5 7.1 21 12 26.4-8.2-30.9-11.6-73-12.7-88.5H704.5a520 520 0 0 1-12.7 88.5c5-5.4 10-13.9 12-26.4l6.3-39.6 2.7 40.3c0 .7 1.2 16.8-1.7 36.6q-3.8 25.6-13.7 43c11.5-8.5 15.5-25.4 16.5-30.5zm165.3 133-11.3-5a57 57 0 0 1-20.5-16 99 99 0 0 1-19.5-47.8q-3.3 17.3-2.6 35.4l.4 10.8-7-4.6a53 53 0 0 1-19.2-24.2 78 78 0 0 1-5.8-31.3 70 70 0 0 0-4.8 17.8v.3l-.3 2.2-4.4 43.6-4.7-43.5q0-1.1-.3-2.3v-.4a76 76 0 0 0-4.8-17.7 80 80 0 0 1-5.9 31.3 53 53 0 0 1-19.2 24.2l-7 4.6.5-10.8q.7-18-2.6-35.4a99 99 0 0 1-19.5 47.8 57 57 0 0 1-20.6 16l-11.3 5 6-14.4a173 173 0 0 0 12.9-58 45 45 0 0 1-14.3 16 30 30 0 0 1-18 5l-14.7-.6 12.3-11.2c15.4-14 21.3-37.8 23.4-56.7-8.5 13-19 17.5-19.6 17.8l-11.3 4.7 6.1-14.1c13.8-32.2 17.8-106.2 17.8-106.9l.3-6h188.6l.3 6c0 .7 4 74.7 17.9 106.9l6 14-11.3-4.6c-.6-.3-11-4.8-19.6-17.8 2.2 18.9 8 42.8 23.4 56.7l12.4 11.2-14.7.6q-9.7.3-18-5a45 45 0 0 1-14.3-16 186 186 0 0 0 12.9 58z"/></defs><path fill="#ed1d23" d="M1444.3 682.7H1430a13.7 13.7 0 1 1 0-27.3h14.3c11.7 0 21.2-9.6 21.2-21.3v-476a13.7 13.7 0 1 1 27.4 0v476a48.6 48.6 0 0 1-48.6 48.6"/><path fill="#2f2c2d" d="M1428 648.8h-.7v39.4h.7a8 8 0 0 0 8-8v-23.4a8 8 0 0 0-8-8"/><path fill="#ed1d23" d="M62.9 682.2H48.6A48.6 48.6 0 0 1 0 633.6v-476a13.7 13.7 0 1 1 27.4 0v476c0 11.7 9.5 21.2 21.2 21.2H63a13.7 13.7 0 0 1 0 27.4"/><path fill="#2f2c2d" d="M64.4 688.2h.7v-39.4h-.7a8 8 0 0 0-8 8v23.4a8 8 0 0 0 8 8m469.6-349h-6.7a35.5 35.5 0 0 1-35.5-35.5V114.3a35.5 35.5 0 0 1 35.5-35.5h6.7a35.5 35.5 0 0 1 35.5 35.5v189.4a35.5 35.5 0 0 1-35.5 35.5m430 0h-6.7a35.5 35.5 0 0 1-35.5-35.5V114.3a35.5 35.5 0 0 1 35.5-35.5h6.7a35.5 35.5 0 0 1 35.5 35.5v189.4a35.5 35.5 0 0 1-35.5 35.5"/><g clip-path="url(#e)" transform="translate(-278.1 -396.6)"><g clip-path="url(#f)"><g clip-path="url(#g)"><path fill="url(#h)" d="M1370.8 1435.9h-217v206.8h217z"/></g></g></g><g clip-path="url(#i)" transform="translate(-278.1 -396.6)"><g clip-path="url(#j)"><g clip-path="url(#k)"><path fill="url(#l)" d="M1385.6 1429.6H1139v224.3h246.6z"/></g></g></g><g clip-path="url(#m)" transform="translate(-278.1 -396.6)"><g clip-path="url(#n)"><g clip-path="url(#o)"><path fill="url(#p)" d="M898.8 1435.8h-217v206.8h217z"/></g></g></g><g clip-path="url(#q)" transform="translate(-278.1 -396.6)"><g clip-path="url(#r)"><g clip-path="url(#s)"><path fill="url(#t)" d="M913.7 1429.4H667v224.3h246.7z"/></g></g></g><path fill="#2f2c2d" d="M583.3 1106.1H440.9a76 76 0 0 1-75.9-76v-70.6h294.3v70.7c0 42-34 75.9-75.9 75.9M119.9 740.3V597.8c0-42 34-75.9 75.9-75.9h70.6v294.3h-70.5c-42 0-76-34-76-75.9m1254.3-146.9v150.1c0 42-34 76-76 76h-74.3V517.4h74.5c42 0 75.9 34 75.9 75.9m-319.5 512.8H912.3c-42 0-75.9-34-75.9-76v-70.6h294.3v70.7c0 42-34 75.9-75.9 75.9"/><path fill="#ed1d23" d="M1128.1 294.3h-765a171 171 0 0 0-171 171.1v260.3a317 317 0 0 0 316.8 317h473.5a317 317 0 0 0 316.9-317V465.4c0-94.5-76.7-171.1-171.2-171.1"/><path fill="#2f2c2d" d="M1051.3 430h-607a115 115 0 0 0-114.8 114.8v135.6a226 226 0 0 0 226 226h384.7a226 226 0 0 0 226-226V544.8c0-63.4-51.5-114.8-114.9-114.8"/><path fill="#5fbfed" d="M632.9 668.5a99.6 99.6 0 1 1-199 0 99.6 99.6 0 0 1 199 0m428.9 0a99.6 99.6 0 1 1-199.1 0 99.6 99.6 0 0 1 199.1 0"/><path fill="#ed1d23" d="M609.9 78.8a78.8 78.8 0 1 1-157.5 0 78.8 78.8 0 0 1 157.6 0m431 0a78.8 78.8 0 1 1-157.5 0 78.8 78.8 0 0 1 157.5 0M109.8 609.4c-25.9 0-46.9 21-46.9 46.8v25.6c0 25.9 21 46.8 46.9 46.8h10V609.4Zm1273.9 119.2c25.9 0 46.8-21 46.8-46.8v-25.6c0-25.9-21-46.8-46.8-46.8h-10v119.2z"/></svg>
+          </span>
+          <span class="gk">Gatekeeper</span>
+        </div>
+        <div class="center">
+          <h1 class="title">##ERROR##</h1>
+          <h3 class="description">##ERROR_DESCRIPTION##</h3>
+        </div>
+        <div class="details-container">
+          <div class="details-button-container">
+            <div>
+              <span class="details-header">
+                ##ERROR_REASON##
+              </span>
+
+            </div>
+          </div>
+          <div id="error-details">
+            <div id="error-code">
+              error code: ##ERROR_CODE##
+              <br>
+            </div>            
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="footer">
+    </div>
+  </div>
+</body>
+</html>

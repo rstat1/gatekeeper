@@ -1,10 +1,26 @@
+use std::{env, fs, path::Path};
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tonic_build::configure()
-        .build_client(false)
-        .build_transport(false)
-        .file_descriptor_set_path("src/services/proto/service_registry/generated/svcregistry_descriptor.bin")
-        .out_dir("src/services/proto/service_registry/generated")
-        .compile_protos(&["src/services/proto/service_registry/ServiceRegistry.proto"], &["src/services/proto"])
-        .unwrap();
-    Ok(())
+	let p:String = env::current_dir().unwrap().as_os_str().to_str().unwrap().to_string();
+
+	let gen_file_path = format!("{}/{}", p, "src/services/proto/generated");
+	println!("{}",gen_file_path);
+	
+	let path = Path::new(&gen_file_path);
+
+	if !path.exists() {
+		fs::create_dir_all(path)?; // create_dir_all handles nested directories
+	}
+	tonic_build::configure()
+		.build_client(false)
+		.build_transport(false)
+		.include_file(format!("{}/{}", gen_file_path.clone(), "gen.rs"))
+		.file_descriptor_set_path(gen_file_path.clone() + "/descriptors.bin")
+		.out_dir(gen_file_path.clone())
+		.compile_protos(&[
+			"src/services/proto/types.proto",
+			"src/services/proto/ServiceRegistry.proto", 
+			"src/services/proto/APIService.proto"], &["src/services/proto"])
+		.unwrap();
+	Ok(())
 }
