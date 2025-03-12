@@ -7,14 +7,21 @@
 
 use futures::stream::TryStreamExt;
 use mongodb::bson::{doc, Document};
+use mongodb::error::ErrorKind;
 use mongodb::{Client, ClientSession, Collection};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::future::Future;
 use std::sync::Arc;
+use tokio::sync::RwLock;
+
+use crate::vault::VaultClient;
 
 pub struct DataStore {
+	client: RwLock<Client>,
+	serverEP: String,
 	collectionName: String,
-	pub client: Client,
+	vault: Arc<VaultClient>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -36,7 +43,7 @@ pub struct SystemConfiguration {
 /// A ServiceDomain is used to assign services to a base domain.
 ///
 /// Each assigned service inherits the security policies applied to the base domain.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct Domain {
 	pub id: String,
 	pub base: String,
@@ -62,7 +69,7 @@ pub struct Endpoint {
 }
 
 impl DataStore {
-	pub async fn new(username: &String, password: &String, epAddr: &String, collection: String) -> Result<Arc<Self>, mongodb::error::Error> {
+	pub async fn new(username: &String, password: &String, epAddr: &String, collection: String, vault: Arc<VaultClient>) -> Result<Arc<Self>, mongodb::error::Error> {
 		let mongoEP = format!(
 			"mongodb://{}:{}@{}/{}?directconnection=true&appName=gatekeeper&retryWrites=false",
 			username, password, epAddr, collection
@@ -70,74 +77,90 @@ impl DataStore {
 
 		let c = Client::with_uri_str(mongoEP.clone()).await;
 		match c {
-			Ok(c) => Ok(Arc::new(DataStore { client: c, collectionName: collection })),
+			Ok(c) => Ok(Arc::new(DataStore { client: RwLock::new(c), collectionName: collection, vault, serverEP: epAddr.clone() })),
 			Err(e) => Err(e),
 		}
 	}
 	pub async fn GetDomain(&self, name: &String) -> Result<Option<Domain>, mongodb::error::Error> {
-		let coll: Collection<Domain> = self.client.database(&self.collectionName).collection::<Domain>("servicedomains");
-		let cursor = coll.find_one(doc! {"base": name}).await;
-		match cursor {
-			Ok(Some(sd)) => Ok(Some(sd)),
-			Ok(None) => Ok(None),
-			Err(e) => Err(e),
-		}
+		self.retryableQuery(|| async {
+			let coll: Collection<Domain> = self.client.read().await.database(&self.collectionName).collection::<Domain>("servicedomains");
+			let cursor = coll.find_one(doc! {"base": name}).await;
+			match cursor {
+				Ok(Some(sd)) => Ok(Some(sd)),
+				Ok(None) => Ok(None),
+				Err(e) => Err(e),
+			}
+		})
+		.await
 	}
 	pub async fn GetDomainNames(&self) -> Result<Vec<String>, mongodb::error::Error> {
-		let serviceDomainsColl: Collection<Domain> = self.client.database(&self.collectionName).collection("servicedomains");
-		let cursor = serviceDomainsColl.find(doc! {}).await; //.run()?;
-		let mut domains: Vec<String> = Vec::new();
+		self.retryableQuery(|| async {
+			let serviceDomainsColl: Collection<Domain> = self.client.read().await.database(&self.collectionName).collection("servicedomains");
+			let cursor = serviceDomainsColl.find(doc! {}).await; //.run()?;
+			let mut domains: Vec<String> = Vec::new();
 
-		match cursor {
-			Ok(mut c) => {
-				while let Some(doc) = c.try_next().await? {
-					domains.push(doc.base);
+			match cursor {
+				Ok(mut c) => {
+					while let Some(doc) = c.try_next().await? {
+						domains.push(doc.base);
+					}
+					Ok(domains)
 				}
-				Ok(domains)
+				Err(e) => Err(e),
 			}
-			Err(e) => Err(e),
-		}
+		})
+		.await
 	}
 	pub async fn GetDomains(&self) -> Result<Vec<Domain>, mongodb::error::Error> {
-		let serviceDomainsColl: Collection<Domain> = self.client.database(&self.collectionName).collection("servicedomains");
-		let cursor = serviceDomainsColl.find(doc! {}).await; //.run()?;
-		let mut domains: Vec<Domain> = Vec::new();
+		self.retryableQuery(|| async {
+			let serviceDomainsColl: Collection<Domain> = self.client.read().await.database(&self.collectionName).collection("servicedomains");
+			let cursor = serviceDomainsColl.find(doc! {}).await; //.run()?;
+			let mut domains: Vec<Domain> = Vec::new();
 
-		match cursor {
-			Ok(mut c) => {
-				while let Some(doc) = c.try_next().await? {
-					domains.push(doc);
+			match cursor {
+				Ok(mut c) => {
+					while let Some(doc) = c.try_next().await? {
+						domains.push(doc);
+					}
+					Ok(domains)
 				}
-				Ok(domains)
+				Err(e) => Err(e),
 			}
-			Err(e) => Err(e),
-		}
+		})
+		.await
 	}
 
 	pub async fn NewServiceDomain(&self, domain: &Domain) -> Result<bool, mongodb::error::Error> {
-		self.insertUnique("servicedomains", domain, doc! {"base": &domain.base}, None).await
+		self.retryableQuery(|| async { self.insertUnique("servicedomains", domain, doc! {"base": &domain.base}, None).await })
+			.await
 	}
 	pub async fn NewService(&self, svc: &GatekeeperService, parentDomain: &String) -> Result<bool, mongodb::error::Error> {
-		let mut newSvcSession = self.client.start_session().await.unwrap();
+		self.retryableQuery(|| async {
+			let client = self.client.read().await;
+			let mut newSvcSession = client.start_session().await.unwrap();
+			// let mut newSvcSession = self.client.read().unwrap().start_session().await.unwrap();
 
-		let _ = newSvcSession.start_transaction().await;
-		match self.insertUnique("services", svc, doc! {"name": &svc.name}, Some(&mut newSvcSession)).await {
-			Ok(r) => {
-				if r {
-					self.AddServiceToDomain(&svc.name, parentDomain, &mut newSvcSession).await
-				} else {
-					Ok(false)
+			let _ = newSvcSession.start_transaction().await;
+			match self.insertUnique("services", svc, doc! {"name": &svc.name}, Some(&mut newSvcSession)).await {
+				Ok(r) => {
+					if r {
+						self.AddServiceToDomain(&svc.name, parentDomain, &mut newSvcSession).await
+					} else {
+						Ok(false)
+					}
+				}
+				Err(e) => {
+					let _ = newSvcSession.abort_transaction().await;
+					Err(e)
 				}
 			}
-			Err(e) => {
-				let _ = newSvcSession.abort_transaction().await;
-				Err(e)
-			}
-		}
+		})
+		.await
 	}
 	async fn AddServiceToDomain(&self, serviceName: &String, domainName: &String, session: &mut ClientSession) -> Result<bool, mongodb::error::Error> {
-		let coll: Collection<Domain> = self.client.database(&self.collectionName).collection::<Domain>("servicedomains");
-
+		//TODO: use retryable query.
+		// self.retryableQuery(|| async {
+		let coll: Collection<Domain> = self.client.read().await.database(&self.collectionName).collection::<Domain>("servicedomains");
 		match coll
 			.update_one(doc! {"base": domainName}, doc! {"$addToSet": doc!{"services": doc!{"$each": [serviceName]}}})
 			.session(&mut *session)
@@ -153,12 +176,45 @@ impl DataStore {
 			}
 			Err(e) => Err(e),
 		}
+		// }).await
+	}
+	async fn reconnect(&self) -> Result<Client, mongodb::error::Error> {
+		let newCreds = self.vault.GetDBCredentials().await.unwrap();
+
+		let mongoEP = format!(
+			"mongodb://{}:{}@{}/{}?directconnection=true&appName=gatekeeper&retryWrites=false",
+			&newCreds.username, &newCreds.password, self.serverEP, self.collectionName
+		);
+
+		Client::with_uri_str(mongoEP.clone()).await
+	}
+	async fn retryableQuery<QueryResultType, AsyncFn: Future<Output = Result<QueryResultType, mongodb::error::Error>>, F: Fn() -> AsyncFn>(&self, queryFn: F) -> Result<QueryResultType, mongodb::error::Error>
+	where
+		F: Fn() -> AsyncFn,
+	{
+		match queryFn().await {
+			Err(e) => {
+				if matches!(e.kind.as_ref(), ErrorKind::Authentication { .. }) {
+					let _ = self.client.read().await.clone().shutdown();
+					match self.reconnect().await {
+						Ok(c) => {
+							let mut client = self.client.write().await;
+							*client = c;
+							return queryFn().await;
+						}
+						Err(e) => return Err::<QueryResultType, mongodb::error::Error>(e),
+					}
+				}
+				Err(e)
+			}
+			Ok(r) => Ok(r),
+		}
 	}
 	async fn insertUnique<T>(&self, collName: &str, doc: &T, criteriaForUnique: Document, session: Option<&mut ClientSession>) -> Result<bool, mongodb::error::Error>
 	where
 		T: Serialize + DeserializeOwned + Send + Sync + Clone,
 	{
-		let coll: Collection<T> = self.client.database(&self.collectionName).collection::<T>(collName);
+		let coll: Collection<T> = self.client.read().await.database(&self.collectionName).collection::<T>(collName);
 		let cursor: Result<Option<T>, mongodb::error::Error>;
 		if let Some(session) = session {
 			cursor = coll.find_one(criteriaForUnique).session(session).await;

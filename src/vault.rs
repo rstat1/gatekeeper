@@ -376,7 +376,7 @@ impl VaultClient {
 		}
 	}
 	pub async fn Encrypt(&self, key_name: &str, plaintext: &str) -> Result<EncryptedResponse, String> {
-		let plaintext_encoded = engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).encode(plaintext);
+		let plaintext_encoded = engine::GeneralPurpose::new(&alphabet::STANDARD, general_purpose::PAD).encode(plaintext);
 		let req = TransitEncryptRequest::builder().key_name(key_name.to_string()).plaintext(plaintext_encoded).build().unwrap();
 		let result = req.with_middleware(&self.atm).exec(&self.httpClient).await.unwrap().wrap::<VaultResult<_>>();
 		match result {

@@ -14,7 +14,7 @@ use pingora::prelude::*;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 use gatekeeper::data::*;
 use gatekeeper::gw::*;
@@ -68,7 +68,7 @@ fn main() {
 		Err(e) => panic!("{:?}", e),
 	}
 
-	let async_db_init = async { DataStore::new(&dbCreds.username, &dbCreds.password, &conf.mongoEndpoint, conf.collectionName).await };
+	let async_db_init = async { DataStore::new(&dbCreds.username, &dbCreds.password, &conf.mongoEndpoint, conf.collectionName, vault.clone()).await };
 	match rt.block_on(async_db_init) {
 		Ok(ds) => {
 			debug!("mongodb client init");
