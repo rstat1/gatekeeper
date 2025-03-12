@@ -15,7 +15,6 @@ use std::future::Future;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::services::v1::Service;
 use crate::vault::VaultClient;
 
 pub struct DataStore {

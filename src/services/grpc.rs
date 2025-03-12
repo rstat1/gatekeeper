@@ -125,7 +125,7 @@ impl ApiService for GRPCServer {
 				attached_services: svc.services,
 				domain_security_policies: svc.securityPolicies.unwrap_or(Vec::default()),
 			})),
-			Ok(None) => Err(Status::new(tonic::Code::NotFound, "servicw with the provided ID doesn't not exist")),
+			Ok(None) => Err(Status::new(tonic::Code::NotFound, "service with the provided ID doesn't not exist")),
 			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
 		}
 	}
@@ -136,19 +136,31 @@ impl ApiService for GRPCServer {
 				attached_services: svc.services,
 				domain_security_policies: svc.securityPolicies.unwrap_or(Vec::default()),
 			})),
-			Ok(None) => Err(Status::new(tonic::Code::NotFound, "servicw with the provided ID doesn't not exist")),
+			Ok(None) => Err(Status::new(tonic::Code::NotFound, "service with the provided ID doesn't not exist")),
 			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
 		}
 	}
 	async fn delete_domain(&self, request: Request<Id>) -> Result<Response<Empty>, Status> {
 		match self.apiSvcImpl.DeleteDomain(&request.get_ref().id).await {
-			Ok(r) => Ok(Response::new(Empty::default())),
+			Ok(r) => {
+				if r {
+					Ok(Response::new(Empty::default()))
+				} else {
+					Err(Status::new(tonic::Code::Unknown, "nothing was deleted. invalid id?"))
+				}
+			}
 			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
 		}
 	}
 	async fn delete_service(&self, request: Request<Id>) -> Result<Response<Empty>, Status> {
 		match self.apiSvcImpl.DeleteService(&request.get_ref().id).await {
-			Ok(r) => Ok(Response::new(Empty::default())),
+			Ok(r) => {
+				if r {
+					Ok(Response::new(Empty::default()))
+				} else {
+					Err(Status::new(tonic::Code::Unknown, "nothing was deleted. invalid id?"))
+				}
+			}
 			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
 		}
 	}
