@@ -5,11 +5,11 @@
 * found in the included LICENSE file.
 */
 
-//This is stupid. I shouldn't need to clutter up the code like this to disable stupid 
+//This is stupid. I shouldn't need to clutter up the code like this to disable stupid
 //messages about formatting that shouldn't be complier warnings.
 #![allow(nonstandard_style)]
 
 pub mod data;
 pub mod gw;
-pub mod vault;
 pub mod services;
+pub mod vault;

@@ -10,7 +10,7 @@ use uuid::Uuid;
 use super::{cert_svc::CertManagerSvc, v1::*};
 use crate::{
 	data::{DataStore, Domain, GatekeeperService},
-	vault::{Certificate},
+	vault::Certificate,
 };
 use std::sync::Arc;
 
@@ -42,11 +42,13 @@ impl APIServiceImpl {
 					Err(e) => return Err(e),
 				};
 				match self.db.NewService(&svc, parentDomain).await {
-					Ok(r) => if r {
-						Ok((svc.id, svcCert))
-					} else {
-						Err("already exists".to_string())
-					}, 
+					Ok(r) => {
+						if r {
+							Ok((svc.id, svcCert))
+						} else {
+							Err("already exists".to_string())
+						}
+					}
 					Err(e) => Err(e.to_string()),
 				}
 			}

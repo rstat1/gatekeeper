@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use http::Uri;
 use pingora::{
-    Error,
-    ErrorType::{Custom, CustomCode, HTTPStatus, InternalError},
+	Error,
+	ErrorType::{Custom, CustomCode, HTTPStatus, InternalError},
 };
 use pingora_core::upstreams::peer::HttpPeer;
 use pingora_core::Result;
@@ -21,71 +21,68 @@ use tracing::debug;
 use crate::data::DataStore;
 
 pub struct RequestContext {
-    base: String,
-    service: String,
+	base: String,
+	service: String,
 }
 
 #[async_trait]
 impl ProxyHttp for crate::gw::ReverseProxy {
-    type CTX = RequestContext;
-    fn new_ctx(&self) -> Self::CTX {
-        RequestContext {
-            base: String::new(),
-            service: String::new(),
-        }
-    }
+	type CTX = RequestContext;
+	fn new_ctx(&self) -> Self::CTX {
+		RequestContext { base: String::new(), service: String::new() }
+	}
 
-    async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool>
-    where
-        Self::CTX: Send + Sync,
-    {
-        let host = session.get_header("Host");
+	async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool>
+	where
+		Self::CTX: Send + Sync,
+	{
+		let host = session.get_header("Host");
 
-        if let Some(host) = host {
-            let url: Uri = host.to_str().unwrap().parse().unwrap();
-            let urlParts: Vec<&str> = host.to_str().unwrap().splitn(2, ".").collect();
-            let mut base = urlParts[1].to_string();
+		if let Some(host) = host {
+			let url: Uri = host.to_str().unwrap().parse().unwrap();
+			let urlParts: Vec<&str> = host.to_str().unwrap().splitn(2, ".").collect();
+			let mut base = urlParts[1].to_string();
 
-            let port = url.port();
-            if let Some(port) = port {
-                base = base.replace(format!(":{}", port.as_str()).as_str(), "")
-            }
+			let port = url.port();
+			if let Some(port) = port {
+				base = base.replace(format!(":{}", port.as_str()).as_str(), "")
+			}
 
-            ctx.base = base.clone();
-            ctx.service = urlParts[0].to_string();
+			ctx.base = base.clone();
+			ctx.service = urlParts[0].to_string();
 
-            if self.svcs.IsValidDomain(&base) {
-                return Ok(false);
-            }
-        }
+			if self.svcs.IsValidDomain(&base) {
+				return Ok(false);
+			}
+		}
 
-        let h = ResponseHeader::build(400, None).unwrap();
-        session.write_response_header(Box::new(h), true).await?;
-        session.write_response_body(Some(Bytes::from_static(b"go away!\n")), true).await?;
-        session.set_keepalive(None);
-        return Ok(true);
-    }
+		let h = ResponseHeader::build(400, None).unwrap();
+		session.write_response_header(Box::new(h), true).await?;
+		session.write_response_body(Some(Bytes::from_static(b"go away!\n")), true).await?;
+		session.set_keepalive(None);
+		return Ok(true);
+	}
 
-    async fn upstream_peer(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<Box<HttpPeer>> {
-        let serviceEP = self.svcs.GetServiceEndpoint(&ctx.service);
-        if let Some(serviceEP) = serviceEP {
-            let peer = Box::new(HttpPeer::new(serviceEP, false, "".to_string()));
-            Ok(peer)
-        } else {
-            let h = ResponseHeader::build(503, None).unwrap();
+	async fn upstream_peer(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<Box<HttpPeer>> {
+		let serviceEP = self.svcs.GetServiceEndpoint(&ctx.service);
+		if let Some(serviceEP) = serviceEP {
+			let peer = Box::new(HttpPeer::new(serviceEP, false, "".to_string()));
+			Ok(peer)
+		} else {
+			let h = ResponseHeader::build(503, None).unwrap();
 
-            session.write_response_header(Box::new(h), true).await?;
-            session.write_response_body(Some(Bytes::from(String::into_bytes(self.no_endpoint_err()))), true).await?;
-            session.set_keepalive(None);
+			session.write_response_header(Box::new(h), true).await?;
+			session.write_response_body(Some(Bytes::from(String::into_bytes(self.no_endpoint_err()))), true).await?;
+			session.set_keepalive(None);
 
-            Err(Error::new_up(CustomCode("ServiceUnavilable", 503)))
-        }
-    }
+			Err(Error::new_up(CustomCode("ServiceUnavilable", 503)))
+		}
+	}
 
-    async fn response_filter(&self, _session: &mut Session, _upstream_response: &mut ResponseHeader, _ctx: &mut Self::CTX) -> Result<()>
-    where
-        Self::CTX: Send + Sync,
-    {
-        Ok(())
-    }
+	async fn response_filter(&self, _session: &mut Session, _upstream_response: &mut ResponseHeader, _ctx: &mut Self::CTX) -> Result<()>
+	where
+		Self::CTX: Send + Sync,
+	{
+		Ok(())
+	}
 }
