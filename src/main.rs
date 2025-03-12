@@ -91,7 +91,7 @@ fn main() {
 		Err(e) => panic!("{:?}", e),
 	}
 
-	apiImpl = APIServiceImpl::new(db.clone(), vault.clone(), acme.clone());
+	apiImpl = APIServiceImpl::new(db.clone(), acme.clone());
 
 	let dynamic_cert = DynamicCert::new();
 	let tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();

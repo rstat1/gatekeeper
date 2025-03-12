@@ -10,20 +10,19 @@ use uuid::Uuid;
 use super::{cert_svc::CertManagerSvc, v1::*};
 use crate::{
 	data::{DataStore, Domain, GatekeeperService},
-	vault::{Certificate, VaultClient},
+	vault::{Certificate},
 };
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct APIServiceImpl {
 	db: Arc<DataStore>,
-	vault: Arc<VaultClient>,
 	certMgr: Arc<CertManagerSvc>,
 }
 
 impl APIServiceImpl {
-	pub fn new(db: Arc<DataStore>, vc: Arc<VaultClient>, certMgr: Arc<CertManagerSvc>) -> Self {
-		APIServiceImpl { db, vault: vc, certMgr }
+	pub fn new(db: Arc<DataStore>, certMgr: Arc<CertManagerSvc>) -> Self {
+		APIServiceImpl { db, certMgr }
 	}
 	pub async fn NewService(&self, svc: &Service, parentDomain: &String) -> Result<(String, Certificate), String> {
 		let svc: GatekeeperService = GatekeeperService {
