@@ -21,7 +21,7 @@ use gatekeeper::gw::*;
 use gatekeeper::services::api::APIServiceImpl;
 use gatekeeper::services::cert_svc::CertManagerSvc;
 use gatekeeper::services::grpc::GRPCServer;
-use gatekeeper::services::service_registry::ServiceRegistryImpl;
+use gatekeeper::services::service_registry::EndpointManagerImpl;
 use gatekeeper::vault::{DBCredentials, VaultClient};
 
 fn main() {
@@ -34,7 +34,7 @@ fn main() {
 	let vault: Arc<VaultClient>;
 	let acme: Arc<CertManagerSvc>;
 	let conf: SystemConfiguration;
-	let srImpl: Arc<ServiceRegistryImpl>;
+	let srImpl: Arc<EndpointManagerImpl>;
 	let mut server = Server::new(None).unwrap();
 	let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
 
@@ -85,7 +85,7 @@ fn main() {
 		}
 	}
 
-	let async_sri_init = async { ServiceRegistryImpl::new(db.clone()).await };
+	let async_sri_init = async { EndpointManagerImpl::new(db.clone()).await };
 	match rt.block_on(async_sri_init) {
 		Ok(sri) => srImpl = Arc::new(sri),
 		Err(e) => panic!("{:?}", e),

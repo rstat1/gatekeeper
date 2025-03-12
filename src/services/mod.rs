@@ -5,9 +5,6 @@
 * found in the included LICENSE file.
 */
 
-#![allow(unused_imports)]
-#![allow(unused_variables)]
-
 #[macro_export]
 macro_rules! grpc_include {
     ($package: tt) => {
@@ -25,10 +22,11 @@ macro_rules! grpc_fd_set {
 pub mod api;
 pub mod grpc;
 pub mod service_registry;
+pub mod cert_svc;
 
 pub mod v1 {
     grpc_include!("gatekeeper.api.v1");
-    grpc_include!("gatekeeper.service_registry.v1");
+    grpc_include!("gatekeeper.endpoint_manager.v1");
 }
 pub mod types {
     grpc_include!("gatekeeper.services.types");

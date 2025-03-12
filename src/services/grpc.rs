@@ -9,10 +9,10 @@ use std::{net::SocketAddr, sync::Arc};
 use tonic::{transport::Server, Request, Response, Status};
 use tracing::error;
 
-use super::{api::APIServiceImpl, service_registry::ServiceRegistryImpl, types::Empty};
+use super::{api::APIServiceImpl, service_registry::EndpointManagerImpl, types::Empty};
 use crate::grpc_fd_set;
 use crate::services::v1::api_service_server::*;
-use crate::services::v1::service_registry_server::*;
+use crate::services::v1::endpoint_manager_server::*;
 use crate::services::v1::*;
 
 pub(crate) const FD_SET: &[u8] = grpc_fd_set!("descriptors");
@@ -20,13 +20,13 @@ pub(crate) const FD_SET: &[u8] = grpc_fd_set!("descriptors");
 #[derive(Clone)]
 pub struct GRPCServer {
 	apiSvcImpl: Arc<APIServiceImpl>,
-	svcRegistryImpl: Arc<ServiceRegistryImpl>,
+	svcRegistryImpl: Arc<EndpointManagerImpl>,
 }
 
 impl GRPCServer {
-	pub async fn InitAndServe(addr: SocketAddr, sr: Arc<ServiceRegistryImpl>, api: Arc<APIServiceImpl>) {
+	pub async fn InitAndServe(addr: SocketAddr, sr: Arc<EndpointManagerImpl>, api: Arc<APIServiceImpl>) {
 		let srv = GRPCServer { svcRegistryImpl: Arc::clone(&sr), apiSvcImpl: Arc::clone(&api) };
-		let svcReg = ServiceRegistryServer::new(srv.clone());
+		let svcReg = EndpointManagerServer::new(srv.clone());
 		let api = ApiServiceServer::new(srv.clone());
 		let reflectSvc = tonic_reflection::server::Builder::configure().register_encoded_file_descriptor_set(FD_SET).build_v1().unwrap();
 		match Server::builder().add_service(svcReg).add_service(api).add_service(reflectSvc).serve(addr).await {
@@ -39,8 +39,8 @@ impl GRPCServer {
 }
 
 #[tonic::async_trait]
-impl ServiceRegistry for GRPCServer {
-	async fn register_service(&self, request: Request<NewService>) -> Result<Response<Empty>, Status> {
+impl EndpointManager for GRPCServer {
+	async fn register_service_endpoint(&self, request: Request<NewServiceEndpoint>) -> Result<Response<Empty>, Status> {
 		let reply = Empty {};
 
 		let svcInfo = request.get_ref();

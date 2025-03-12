@@ -20,18 +20,18 @@ use tonic::async_trait;
 use tracing::debug;
 
 use crate::data::DataStore;
-use crate::services::service_registry::ServiceRegistryImpl;
+use crate::services::service_registry::EndpointManagerImpl;
 
 pub mod gateway;
 pub struct DynamicCert;
 pub struct ReverseProxy {
-    svcs: Arc<ServiceRegistryImpl>,
+    svcs: Arc<EndpointManagerImpl>,
 }
 
 const ERROR_PAGE: &'static str = include_str!("error_page.html");
 
 impl ReverseProxy {
-    pub fn new(sr: Arc<ServiceRegistryImpl>) -> Self {
+    pub fn new(sr: Arc<EndpointManagerImpl>) -> Self {
         ReverseProxy { svcs: sr }
     }
     pub(super) fn generate_err_page(&self, code: String, error: String, err_details: String, reason: String) -> String {

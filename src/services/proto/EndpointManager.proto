@@ -1,10 +1,10 @@
 syntax = "proto3";
-package gatekeeper.service_registry.v1;
-option go_package = "/service_registry/v1";
+package gatekeeper.endpoint_manager.v1;
+option go_package = "/endpoint_manager/v1";
 
 import "types.proto";
 
-message NewService {
+message NewServiceEndpoint {
     string serviceName = 1;
     repeated string tags = 2;
     string endpoint = 3;
@@ -17,7 +17,7 @@ message ServiceEndpointResponse {
 	string endpont = 1;
 }
 
-service ServiceRegistry {
-    rpc RegisterService(NewService) returns (gatekeeper.services.types.Empty);
+service EndpointManager {
+    rpc RegisterServiceEndpoint(NewServiceEndpoint) returns (gatekeeper.services.types.Empty);
     rpc GetServiceEndpoint(ServiceEndpointRequest) returns (ServiceEndpointResponse);
 }
