@@ -85,13 +85,13 @@ fn main() {
 		}
 	}
 
-	let async_sri_init = async { ServiceRegistryImpl::new(db.clone(), acme.clone()).await };
+	let async_sri_init = async { ServiceRegistryImpl::new(db.clone()).await };
 	match rt.block_on(async_sri_init) {
 		Ok(sri) => srImpl = Arc::new(sri),
 		Err(e) => panic!("{:?}", e),
 	}
 
-	apiImpl = APIServiceImpl::new(db.clone(), vault.clone());
+	apiImpl = APIServiceImpl::new(db.clone(), vault.clone(), acme.clone());
 
 	let dynamic_cert = DynamicCert::new();
 	let tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
