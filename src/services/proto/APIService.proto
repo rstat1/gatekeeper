@@ -11,7 +11,7 @@ message ID {
 message ServiceDomain {
     string base = 1;
     repeated string attachedServices = 2;
-    repeated string domainSecurityPolicies = 4;
+    repeated string domainSecurityPolicies = 3;
 }    
 message Service {
     string name = 1;
@@ -19,6 +19,7 @@ message Service {
     bool isFrostService = 3;
     string healthCheckRoute = 4;
     repeated string securityPolicies = 5;
+    string id = 6;
 }    
 message ServiceCredentials {
     string ca_cert = 1;
@@ -39,17 +40,8 @@ message NewServiceResponse {
 message NewDomainRequest {
     ServiceDomain domain = 1;
 }    
-
 message ByNameRequest {
     string name = 1;
-}
-message ServiceByNameResponse {
-    string id = 1;
-    Service service = 2;
-}
-message DomainByNameResponse {
-    string id = 1;
-    ServiceDomain domain = 2;
 }
 
 service APIService {
@@ -58,8 +50,8 @@ service APIService {
 
     rpc GetServiceByID(ID) returns (Service);
     rpc GetDomainByID(ID) returns (ServiceDomain);    
-    rpc GetDomainByName(ByNameRequest) returns (DomainByNameResponse);
-    rpc GetServiceByName(ByNameRequest) returns (ServiceByNameResponse);
+    rpc GetDomainByName(ByNameRequest) returns (ServiceDomain);
+    rpc GetServiceByName(ByNameRequest) returns (Service);
 
     rpc DeleteDomain(ID) returns (gatekeeper.services.types.Empty);
     rpc DeleteService(ID) returns (gatekeeper.services.types.Empty);

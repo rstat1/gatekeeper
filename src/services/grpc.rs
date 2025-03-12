@@ -71,7 +71,7 @@ impl ApiService for GRPCServer {
 			}
 			Err(e) => {
 				if e == "already exists" {
-					Err(Status::new(tonic::Code::Unknown, format!("service already exists")))
+					Err(Status::new(tonic::Code::AlreadyExists, format!("service already exists")))
 				} else {
 					Err(Status::new(tonic::Code::Unknown, e))
 				}
@@ -83,29 +83,73 @@ impl ApiService for GRPCServer {
 			Ok(id) => Ok(Response::new(Id { id })),
 			Err(e) => {
 				if e == "already exists" {
-					Err(Status::new(tonic::Code::Unknown, format!("service domain already exists")))
+					Err(Status::new(tonic::Code::AlreadyExists, format!("service domain already exists")))
 				} else {
 					Err(Status::new(tonic::Code::Unknown, e))
 				}
 			}
 		}
 	}
-	async fn get_service_by_id(&self, _request: Request<Id>) -> Result<Response<Service>, Status> {
-		Err(Status::new(tonic::Code::Unimplemented, "method new_services is not implemented"))
+	async fn get_service_by_id(&self, request: Request<Id>) -> Result<Response<Service>, Status> {
+		match self.apiSvcImpl.GetServiceByID(&request.get_ref().id).await {
+			Ok(Some(svc)) => Ok(Response::new(Service {
+				id: svc.id,
+				is_frost_service: svc.isFrostSvc,
+				name: svc.name,
+				internal: svc.internal,
+				health_check_route: svc.healthCheckRoute,
+				security_policies: svc.securityPolices.unwrap_or(Vec::default()),
+			})),
+			Ok(None) => Err(Status::new(tonic::Code::NotFound, "servicw with the provided ID doesn't not exist")),
+			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
+		}
 	}
-	async fn get_domain_by_id(&self, _request: Request<Id>) -> Result<Response<ServiceDomain>, Status> {
-		Err(Status::new(tonic::Code::Unimplemented, "method get_domain_by_id is not implemented"))
+	async fn get_service_by_name(&self, request: Request<ByNameRequest>) -> Result<Response<Service>, tonic::Status> {
+		match self.apiSvcImpl.GetServiceByName(&request.get_ref().name).await {
+			Ok(Some(svc)) => Ok(Response::new(Service {
+				id: svc.id,
+				is_frost_service: svc.isFrostSvc,
+				name: svc.name,
+				internal: svc.internal,
+				health_check_route: svc.healthCheckRoute,
+				security_policies: svc.securityPolices.unwrap_or(Vec::default()),
+			})),
+			Ok(None) => Err(Status::new(tonic::Code::NotFound, "servicw with the provided ID doesn't not exist")),
+			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
+		}
 	}
-	async fn get_domain_by_name(&self, _request: Request<ByNameRequest>) -> Result<Response<DomainByNameResponse>, tonic::Status> {
-		Err(Status::new(tonic::Code::Unimplemented, "method get_domain_by_name is not implemented"))
+	async fn get_domain_by_id(&self, request: Request<Id>) -> Result<Response<ServiceDomain>, Status> {
+		match self.apiSvcImpl.GetDomainByID(&request.get_ref().id).await {
+			Ok(Some(svc)) => Ok(Response::new(ServiceDomain {
+				base: svc.base,
+				attached_services: svc.services,
+				domain_security_policies: svc.securityPolicies.unwrap_or(Vec::default()),
+			})),
+			Ok(None) => Err(Status::new(tonic::Code::NotFound, "servicw with the provided ID doesn't not exist")),
+			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
+		}
 	}
-	async fn get_service_by_name(&self, _request: Request<ByNameRequest>) -> Result<Response<ServiceByNameResponse>, tonic::Status> {
-		Err(Status::new(tonic::Code::Unimplemented, "method get_service_by_name is not implemented"))
+	async fn get_domain_by_name(&self, request: Request<ByNameRequest>) -> Result<Response<ServiceDomain>, tonic::Status> {
+		match self.apiSvcImpl.GetDomainByName(&request.get_ref().name).await {
+			Ok(Some(svc)) => Ok(Response::new(ServiceDomain {
+				base: svc.base,
+				attached_services: svc.services,
+				domain_security_policies: svc.securityPolicies.unwrap_or(Vec::default()),
+			})),
+			Ok(None) => Err(Status::new(tonic::Code::NotFound, "servicw with the provided ID doesn't not exist")),
+			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
+		}
 	}
-	async fn delete_domain(&self, _request: Request<Id>) -> Result<Response<Empty>, Status> {
-		Err(Status::new(tonic::Code::Unimplemented, "method delete_domain is not implemented"))
+	async fn delete_domain(&self, request: Request<Id>) -> Result<Response<Empty>, Status> {
+		match self.apiSvcImpl.DeleteDomain(&request.get_ref().id).await {
+			Ok(r) => Ok(Response::new(Empty::default())),
+			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
+		}
 	}
-	async fn delete_service(&self, _request: Request<Id>) -> Result<Response<Empty>, Status> {
-		Err(Status::new(tonic::Code::Unimplemented, "method delete_service is not implemented"))
+	async fn delete_service(&self, request: Request<Id>) -> Result<Response<Empty>, Status> {
+		match self.apiSvcImpl.DeleteService(&request.get_ref().id).await {
+			Ok(r) => Ok(Response::new(Empty::default())),
+			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
+		}
 	}
 }

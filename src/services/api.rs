@@ -35,7 +35,7 @@ impl APIServiceImpl {
 		};
 		let svcCert: Certificate;
 
-		match self.db.GetDomain(parentDomain).await {
+		match self.db.GetDomainByName(parentDomain).await {
 			Ok(Some(_)) => {
 				match self.certMgr.GenerateServiceCert(&svc.name).await {
 					Ok(c) => svcCert = c,
@@ -68,5 +68,39 @@ impl APIServiceImpl {
 			}
 			Err(e) => Err(e.to_string()),
 		}
+	}
+	pub async fn GetServiceByName(&self, name: &String) -> Result<Option<GatekeeperService>, String> {
+		match self.db.GetServiceByName(name).await {
+			Ok(Some(gks)) => Ok(Some(gks)),
+			Ok(None) => Ok(None),
+			Err(e) => Err(e.to_string()),
+		}
+	}
+	pub async fn GetServiceByID(&self, id: &String) -> Result<Option<GatekeeperService>, String> {
+		match self.db.GetServiceByID(id).await {
+			Ok(Some(gks)) => Ok(Some(gks)),
+			Ok(None) => Ok(None),
+			Err(e) => Err(e.to_string()),
+		}
+	}
+	pub async fn GetDomainByName(&self, name: &String) -> Result<Option<Domain>, String> {
+		match self.db.GetDomainByName(name).await {
+			Ok(Some(d)) => Ok(Some(d)),
+			Ok(None) => Ok(None),
+			Err(e) => Err(e.to_string()),
+		}
+	}
+	pub async fn GetDomainByID(&self, id: &String) -> Result<Option<Domain>, String> {
+		match self.db.GetDomainByID(id).await {
+			Ok(Some(d)) => Ok(Some(d)),
+			Ok(None) => Ok(None),
+			Err(e) => Err(e.to_string()),
+		}
+	}
+	pub async fn DeleteDomain(&self, id: &String) -> Result<bool, String> {
+		self.db.DeleteDomain(id).await.map_err(|e| String::from(e.to_string()))
+	}
+	pub async fn DeleteService(&self, id: &String) -> Result<bool, String> {
+		self.db.DeleteService(id).await.map_err(|e| String::from(e.to_string()))
 	}
 }

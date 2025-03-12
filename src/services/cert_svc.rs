@@ -83,7 +83,7 @@ impl CertManagerSvc {
 			Ok(cert) => {
 				let certJSON = serde_json::to_string(&cert).unwrap();
 				let er = self.vault.Encrypt("platform", certJSON.as_str()).await?;
-				match std::fs::write(format!("certs/svcs/{}.crt", serviceName), er.ciphertext) {
+				match std::fs::write(format!("certs/svcs/{}.cert", serviceName), er.ciphertext) {
 					Ok(_) => Ok(cert),
 					Err(e) => Err(e.to_string()),
 				}
