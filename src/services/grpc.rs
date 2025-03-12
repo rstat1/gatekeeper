@@ -62,7 +62,7 @@ impl EndpointManager for GRPCServer {
 impl ApiService for GRPCServer {
 	async fn new_service(&self, request: Request<NewServiceRequest>) -> Result<Response<NewServiceResponse>, Status> {
 		let svc = request.get_ref();
-		match self.svcRegistryImpl.NewService(svc.svc_details.as_ref().unwrap(), &svc.parent_service_domain).await {
+		match self.apiSvcImpl.NewService(svc.svc_details.as_ref().unwrap(), &svc.parent_service_domain).await {
 			Ok(r) => {
 				let ca_chain = r.1.ca_chain.unwrap();
 				let x = ca_chain.iter().fold(String::new(), |acc, i| acc + "\n" + i);
