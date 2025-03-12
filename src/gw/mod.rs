@@ -20,7 +20,7 @@ use tonic::async_trait;
 use tracing::debug;
 
 use crate::data::DataStore;
-use crate::services::service_registry::EndpointManagerImpl;
+use crate::services::endpoint_manager::EndpointManagerImpl;
 
 pub mod gateway;
 pub struct DynamicCert;

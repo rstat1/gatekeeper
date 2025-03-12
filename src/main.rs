@@ -21,7 +21,7 @@ use gatekeeper::gw::*;
 use gatekeeper::services::api::APIServiceImpl;
 use gatekeeper::services::cert_svc::CertManagerSvc;
 use gatekeeper::services::grpc::GRPCServer;
-use gatekeeper::services::service_registry::EndpointManagerImpl;
+use gatekeeper::services::endpoint_manager::EndpointManagerImpl;
 use gatekeeper::vault::{DBCredentials, VaultClient};
 
 fn main() {

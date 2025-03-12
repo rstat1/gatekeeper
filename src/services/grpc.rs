@@ -9,7 +9,7 @@ use std::{net::SocketAddr, sync::Arc};
 use tonic::{transport::Server, Request, Response, Status};
 use tracing::error;
 
-use super::{api::APIServiceImpl, service_registry::EndpointManagerImpl, types::Empty};
+use super::{api::APIServiceImpl, endpoint_manager::EndpointManagerImpl, types::Empty};
 use crate::grpc_fd_set;
 use crate::services::v1::api_service_server::*;
 use crate::services::v1::endpoint_manager_server::*;

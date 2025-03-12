@@ -12,12 +12,10 @@ use instant_acme::{Account, AccountCredentials, BytesResponse, ExternalAccountKe
 use std::{error::Error, future::Future, pin::Pin, sync::Arc};
 use tracing::{debug, error, info};
 
-use crate::vault::{Certificate, EABCreds, VaultClient};
+use crate::vault::{Certificate, VaultClient};
 
 pub struct CertManagerSvc {
-	creds: EABCreds,
 	vault: Arc<VaultClient>,
-	vaultACMEEndpoint: String,
 }
 
 struct ACMEHTTPClient;
@@ -60,8 +58,24 @@ impl HttpClient for ACMEHTTPClient {
 }
 
 impl CertManagerSvc {
-	pub async fn new(vault: Arc<VaultClient>, vaultACMEEndpoint: String) -> Result<Self, String> {
-		Ok(Self { creds: EABCreds::default(), vaultACMEEndpoint: vaultACMEEndpoint.clone(), vault })
+	pub async fn new(vault: Arc<VaultClient>) -> Result<Self, String> {
+		Ok(Self { vault })
+		// match vault.ReadValueFromKV("internalsvcca_eab").await {
+		// 	Ok(eab) => {
+		// 		let creds: EABCreds = serde_json::from_str(eab["creds"].as_str().unwrap()).map_err(|e| String::from(e.to_string()))?;
+		// 		Ok(Self { creds, vaultACMEEndpoint: vaultACMEEndpoint.clone(), vault })
+		// 	}
+		// 	Err(_) => match vault.GetEABCreds().await {
+		// 		Ok(creds) => {
+		// 			let credStr: String = serde_json::to_string(&creds).unwrap();
+		// 			match vault.WriteValueToKV("internalsvcca_eab", "creds", credStr).await {
+		// 				Ok(_) => Ok(Self { creds, vaultACMEEndpoint: vaultACMEEndpoint.clone(), vault: vault }),
+		// 				Err(e) => Err(e),
+		// 			}
+		// 		}
+		// 		Err(e) => Err(e),
+		// 	},
+		// }
 	}
 	pub async fn GenerateServiceCert(&self, serviceName: &String) -> Result<Certificate, String> {
 		let certResult = self.vault.GenerateServiceCert("gatekeeper", &serviceName).await;
@@ -86,11 +100,11 @@ impl CertManagerSvc {
 			let ac: AccountCredentials = serde_json::from_str(credStr["creds"].as_str().unwrap()).unwrap();
 			account = Account::from_credentials_and_http(ac, Box::new(ACMEHTTPClient {})).await.unwrap()
 		} else {
-			let key_decoded = engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).decode(&self.creds.key).unwrap();
+			let key_decoded = engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).decode("&self.creds.key".to_string()).unwrap();
 			let res = Account::create_with_http(
 				&NewAccount { contact: &[], terms_of_service_agreed: true, only_return_existing: false },
-				&self.vaultACMEEndpoint,
-				Some(&ExternalAccountKey::new(self.creds.id.clone(), &key_decoded)),
+				"&self.vaultACMEEndpoint",
+				Some(&ExternalAccountKey::new("self.creds.id".to_string(), &key_decoded)),
 				Box::new(ACMEHTTPClient {}),
 			)
 			.await;
@@ -105,7 +119,7 @@ impl CertManagerSvc {
 					info!("account created: {:#?}", account.id());
 				}
 				Err(e) => {
-					tracing::error!("{}, {:?} creds: {:?}", e, e.source(), self.creds);
+					tracing::error!("{}, {:?}", e, e.source());
 					return Err(e.to_string());
 				}
 			}
