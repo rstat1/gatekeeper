@@ -11,96 +11,104 @@
 
 use pingora::listeners::tls::TlsSettings;
 use pingora::prelude::*;
-use std::ops::DerefMut;
+use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use std::{env, fs};
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use gatekeeper::data::*;
 use gatekeeper::gw::*;
 use gatekeeper::services::api::APIServiceImpl;
+use gatekeeper::services::cert_svc::CertManagerSvc;
 use gatekeeper::services::grpc::GRPCServer;
 use gatekeeper::services::service_registry::ServiceRegistryImpl;
-use gatekeeper::vault::{DBCredentials, GatekeeperVaultClient};
+use gatekeeper::vault::{DBCredentials, VaultClient};
 
 fn main() {
-    tracing_subscriber::fmt::init();
-    info!("starting gatekeeper...");
+	tracing_subscriber::fmt::init();
+	info!("starting gatekeeper...");
 
-    let db: Arc<DataStore>;
-    let dbCreds: DBCredentials;
-    let apiImpl: APIServiceImpl;
-    let conf: SystemConfiguration;
-    let srImpl: Arc<ServiceRegistryImpl>;
-    let vault: Arc<GatekeeperVaultClient>;
-    let mut server = Server::new(None).unwrap();
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+	let db: Arc<DataStore>;
+	let dbCreds: DBCredentials;
+	let apiImpl: APIServiceImpl;
+	let vault: Arc<VaultClient>;
+	let acme: Arc<CertManagerSvc>;
+	let conf: SystemConfiguration;
+	let srImpl: Arc<ServiceRegistryImpl>;
+	let mut server = Server::new(None).unwrap();
+	let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
 
-    server.bootstrap();
+	server.bootstrap();
 
-    let conf_file = std::fs::read_to_string("gatekeeper_config");
-    match conf_file {
-        Ok(file) => {
-            conf = serde_json::from_str(&file).unwrap();
-        }
-        Err(e) => panic!("{:?}", e),
-    }
+	let conf_file = std::fs::read_to_string("gatekeeper_config");
+	match conf_file {
+		Ok(file) => {
+			conf = serde_json::from_str(&file).unwrap();
+		}
+		Err(e) => panic!("{:?}", e),
+	}
 
-    let async_vc_init = async { GatekeeperVaultClient::new(&conf.vaultEndpoint).await };
-    match rt.block_on(async_vc_init) {
-        Ok(c) => vault = c,
-        Err(e) => panic!("{:?}", e),
-    }
+	let path = Path::new("certs/svcs");
+	if !path.exists() {
+		fs::create_dir_all(path).unwrap();
+	}
 
-    info!("vault client init");
+	let async_vc_init = async { VaultClient::new(&conf.vaultEndpoint).await };
+	match rt.block_on(async_vc_init) {
+		Ok(c) => {
+			debug!("vault client init");
+			vault = c
+		}
+		Err(e) => panic!("{:?}", e),
+	}
 
-    let get_db_creds = async { vault.get_db_credentials().await };
-    match rt.block_on(get_db_creds) {
-        Ok(dbs) => dbCreds = dbs,
-        Err(e) => panic!("{:?}", e),
-    }
+	let get_db_creds = async { vault.GetDBCredentials().await };
+	match rt.block_on(get_db_creds) {
+		Ok(dbs) => dbCreds = dbs,
+		Err(e) => panic!("{:?}", e),
+	}
 
-    let async_db_init = async { DataStore::new(&dbCreds.username, &dbCreds.password, &conf.mongoEndpoint, conf.collectionName).await };
-    match rt.block_on(async_db_init) {
-        Ok(ds) => {
-            debug!("mongodb client init");
-            db = ds
-        }
-        Err(e) => panic!("{:?}", e),
-    }
+	let async_db_init = async { DataStore::new(&dbCreds.username, &dbCreds.password, &conf.mongoEndpoint, conf.collectionName).await };
+	match rt.block_on(async_db_init) {
+		Ok(ds) => {
+			debug!("mongodb client init");
+			db = ds
+		}
+		Err(e) => panic!("{:?}", e),
+	}
 
-    let async_sri_init = async { ServiceRegistryImpl::new(db.clone()).await };
-    match rt.block_on(async_sri_init) {
-        Ok(sri) => srImpl = Arc::new(sri),
-        Err(e) => panic!("{:?}", e),
-    }
+	let async_ac_init = async { CertManagerSvc::new(vault.clone()).await };
+	match rt.block_on(async_ac_init) {
+		Ok(ac) => acme = Arc::new(ac),
+		Err(e) => {
+			panic!("cert_svc init failed: {}", e)
+		}
+	}
 
-    apiImpl = APIServiceImpl::new(db.clone());
+	let async_sri_init = async { ServiceRegistryImpl::new(db.clone(), acme.clone()).await };
+	match rt.block_on(async_sri_init) {
+		Ok(sri) => srImpl = Arc::new(sri),
+		Err(e) => panic!("{:?}", e),
+	}
 
-    let path = Path::new("certs");
-    let p: String = env::current_dir().unwrap().as_os_str().to_str().unwrap().to_string();
+	apiImpl = APIServiceImpl::new(db.clone(), vault.clone());
 
-    if !path.exists() {
-        fs::create_dir_all(path).unwrap();
-    }
+	let dynamic_cert = DynamicCert::new();
+	let tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
 
-    let dynamic_cert = DynamicCert::new();
-    let mut tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
+	let mut proxy = pingora_proxy::http_proxy_service(&server.configuration, ReverseProxy::new(srImpl.clone()));
+	proxy.add_tcp(&conf.listenerAddr);
+	proxy.add_tls_with_settings(&conf.tlsListenerAddr, None, tls_settings);
 
-    let mut proxy = pingora_proxy::http_proxy_service(&server.configuration, ReverseProxy::new(srImpl.clone()));
-    proxy.add_tcp(&conf.listenerAddr);
-    proxy.add_tls_with_settings(&conf.tlsListenerAddr, None, tls_settings);
+	std::thread::spawn(move || {
+		let grpcRT = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+		let grpcTask = async {
+			let addr = "0.0.0.0:2000".parse().unwrap();
+			GRPCServer::InitAndServe(addr, srImpl.clone(), Arc::new(apiImpl)).await;
+		};
+		grpcRT.block_on(grpcTask);
+	});
 
-    std::thread::spawn(move || {
-        let grpcRT = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        let grpcTask = async {
-            let addr = "0.0.0.0:2000".parse().unwrap();
-            GRPCServer::InitAndServe(addr, srImpl.clone(), Arc::new(apiImpl)).await;
-        };
-        grpcRT.block_on(grpcTask);
-    });
-
-    server.add_service(proxy);
-    server.run_forever();
+	server.add_service(proxy);
+	server.run_forever();
 }

@@ -1,0 +1,133 @@
+/*
+* Copyright (c) 2025 A Large Red Robot (rstat1@alargerobot.dev)
+*
+* Use of this source code is governed by a "BSD-style" license that can be
+* found in the included LICENSE file.
+*/
+
+use base64::{alphabet, engine, engine::general_purpose, Engine};
+use http_body_util::{BodyExt, Full};
+use instant_acme::ChallengeType;
+use instant_acme::{Account, AccountCredentials, BytesResponse, ExternalAccountKey, HttpClient, Identifier, NewAccount, NewOrder};
+use std::{error::Error, future::Future, pin::Pin, sync::Arc};
+use tracing::{debug, error, info};
+
+use crate::vault::{Certificate, EABCreds, VaultClient};
+
+pub struct CertManagerSvc {
+	creds: EABCreds,
+	vault: Arc<VaultClient>,
+	vaultACMEEndpoint: String,
+}
+
+struct ACMEHTTPClient;
+impl ACMEHTTPClient {}
+
+impl HttpClient for ACMEHTTPClient {
+	fn request(&self, req: http::Request<Full<bytes::Bytes>>) -> Pin<Box<dyn Future<Output = Result<BytesResponse, instant_acme::Error>> + Send>> {
+		let (parts, mut body) = req.into_parts();
+		let uri = parts.uri.to_string();
+		let method = parts.method.clone();
+		let headers = parts.headers.clone();
+
+		Box::pin(async move {
+			let client = reqwest::Client::new();
+			let mut reqwest_req = client.request(method, &uri);
+
+			for (key, value) in headers.iter() {
+				reqwest_req = reqwest_req.header(key, value);
+			}
+
+			let body_frame = body.frame().await;
+			if body_frame.is_some() {
+				let body_bytes = body_frame.unwrap().unwrap().data_ref().unwrap().to_vec();
+				reqwest_req = reqwest_req.body(body_bytes);
+			}
+
+			match client.execute(reqwest_req.build().unwrap()).await {
+				Ok(rsp) => {
+					let http_rsp: http::Response<reqwest::Body> = rsp.into();
+					let bytes_rsp: BytesResponse = BytesResponse::from(http_rsp);
+					Ok(bytes_rsp)
+				}
+				Err(e) => {
+					error!("{}", e);
+					Err(instant_acme::Error::from("error occured, see log"))
+				}
+			}
+		})
+	}
+}
+
+impl CertManagerSvc {
+	pub async fn new(vault: Arc<VaultClient>, vaultACMEEndpoint: String) -> Result<Self, String> {
+		Ok(Self { creds: EABCreds::default(), vaultACMEEndpoint: vaultACMEEndpoint.clone(), vault })
+	}
+	pub async fn GenerateServiceCert(&self, serviceName: &String) -> Result<Certificate, String> {
+		let certResult = self.vault.GenerateServiceCert("gatekeeper", &serviceName).await;
+		match certResult {
+			Ok(cert) => {
+				let certJSON = serde_json::to_string(&cert).unwrap();
+				let er = self.vault.Encrypt("platform", certJSON.as_str()).await?;
+				match std::fs::write(format!("certs/svcs/{}.crt", serviceName), er.ciphertext) {
+					Ok(_) => Ok(cert),
+					Err(e) => Err(e.to_string()),
+				}
+			}
+			Err(e) => Err(e),
+		}
+	}
+	pub async fn GenerateACMECert(&self, serviceName: &String) -> Result<bool, String> {
+		let account: Account;
+
+		let r = self.vault.ReadValueFromKV("internalsvcca_account").await;
+		if r.is_ok() {
+			let credStr: serde_json::Value = serde_json::from_value(r.unwrap()).unwrap();
+			let ac: AccountCredentials = serde_json::from_str(credStr["creds"].as_str().unwrap()).unwrap();
+			account = Account::from_credentials_and_http(ac, Box::new(ACMEHTTPClient {})).await.unwrap()
+		} else {
+			let key_decoded = engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).decode(&self.creds.key).unwrap();
+			let res = Account::create_with_http(
+				&NewAccount { contact: &[], terms_of_service_agreed: true, only_return_existing: false },
+				&self.vaultACMEEndpoint,
+				Some(&ExternalAccountKey::new(self.creds.id.clone(), &key_decoded)),
+				Box::new(ACMEHTTPClient {}),
+			)
+			.await;
+			match res {
+				Ok(acc) => {
+					account = acc.0;
+					let creds = serde_json::to_value(acc.1).map_err(|e| e.to_string())?;
+					match self.vault.WriteValueToKV("internalsvcca_account", "creds", creds.to_string()).await {
+						Ok(_) => {}
+						Err(e) => return Err(e),
+					}
+					info!("account created: {:#?}", account.id());
+				}
+				Err(e) => {
+					tracing::error!("{}, {:?} creds: {:?}", e, e.source(), self.creds);
+					return Err(e.to_string());
+				}
+			}
+		}
+
+		let mut order = account
+			.new_order(&NewOrder { identifiers: &Vec::from([Identifier::Dns(serviceName.clone())]) })
+			.await
+			.map_err(|e| String::from(e.to_string()))?;
+
+		let state = order.state();
+		info!("order state: {:#?}", state);
+		let auths = order.authorizations().await.map_err(|w| w.to_string())?;
+
+		for a in auths {
+			let challenge = a.challenges.iter().find(|c| c.r#type == ChallengeType::Http01).unwrap();
+			debug!("{:?}", order.key_authorization(challenge).as_str());
+			// order.key_authorization(challenge).digest();
+			// let _ = order.challenge(&challenge.url).await;
+			let _ = order.set_challenge_ready(&challenge.url).await;
+		}
+
+		Ok(true)
+	}
+}
