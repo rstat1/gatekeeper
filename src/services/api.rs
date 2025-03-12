@@ -43,7 +43,11 @@ impl APIServiceImpl {
 					Err(e) => return Err(e),
 				};
 				match self.db.NewService(&svc, parentDomain).await {
-					Ok(r) => Ok((svc.id, svcCert)),
+					Ok(r) => if r {
+						Ok((svc.id, svcCert))
+					} else {
+						Err("already exists".to_string())
+					}, 
 					Err(e) => Err(e.to_string()),
 				}
 			}

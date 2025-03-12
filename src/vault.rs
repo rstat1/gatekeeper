@@ -19,7 +19,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::{env, sync::Arc};
 use tokio::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 #[derive(Builder, Endpoint, Default)]
 #[endpoint(path = "/v1/{self.mount}/data/{self.path}", method = "POST", builder = "true")]
