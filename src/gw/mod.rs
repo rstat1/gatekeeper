@@ -49,7 +49,7 @@ impl ReverseProxy {
             "503".to_string(),
             "Service Unavailable".to_string(),
             "There are no endpoints registered for this service.".to_string(),
-            "This is likely do a configuration issue or because all available instances of the service has crashed.".to_string(),
+            "This is likely do to a configuration issue or because all available instances of the service has crashed.".to_string(),
         )        
     }
 }
