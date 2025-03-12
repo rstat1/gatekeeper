@@ -9,7 +9,6 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use http::Uri;
 use pingora::{
-    protocols::http::error_resp::{gen_error_response, HTTP_502_RESPONSE},
     Error,
     ErrorType::{Custom, CustomCode, HTTPStatus, InternalError},
 };
@@ -68,8 +67,6 @@ impl ProxyHttp for crate::gw::ReverseProxy {
     }
 
     async fn upstream_peer(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<Box<HttpPeer>> {
-        //TODO: Not hardcoded service url.
-
         let serviceEP = self.svcs.GetServiceEndpoint(&ctx.service);
         if let Some(serviceEP) = serviceEP {
             let peer = Box::new(HttpPeer::new(serviceEP, false, "".to_string()));
@@ -77,15 +74,8 @@ impl ProxyHttp for crate::gw::ReverseProxy {
         } else {
             let h = ResponseHeader::build(503, None).unwrap();
 
-            let err = self.generate_err_page(
-                "503".to_string(),
-                "Service Unavailable".to_string(),
-                "There are no endpoints registered for this service.".to_string(),
-                "This is likely do a configuration issue or because all available instances of the service has crashed.".to_string(),
-            );
-
             session.write_response_header(Box::new(h), true).await?;
-            session.write_response_body(Some(Bytes::from(String::into_bytes(err))), true).await?;
+            session.write_response_body(Some(Bytes::from(String::into_bytes(self.no_endpoint_err()))), true).await?;
             session.set_keepalive(None);
 
             Err(Error::new_up(CustomCode("ServiceUnavilable", 503)))

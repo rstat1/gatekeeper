@@ -8,6 +8,7 @@
 //This is stupid. I shouldn't need to clutter up the code like this to disable stupid
 //messages about formatting that shouldn't be complier warnings.
 #![allow(nonstandard_style)]
+#![allow(unused)]
 
 use http::Uri;
 use pingora::tls::pkey::PKey;
@@ -42,6 +43,14 @@ impl ReverseProxy {
         page = page.replace("##ERROR_DESCRIPTION##", &err_details);
 
         return page;
+    }
+    pub(super) fn no_endpoint_err(&self) -> String {
+        self.generate_err_page(
+            "503".to_string(),
+            "Service Unavailable".to_string(),
+            "There are no endpoints registered for this service.".to_string(),
+            "This is likely do a configuration issue or because all available instances of the service has crashed.".to_string(),
+        )        
     }
 }
 
