@@ -20,10 +20,21 @@ message Service {
     string healthCheckRoute = 4;
     repeated string securityPolicies = 5;
 }    
+message ServiceCredentials {
+    string ca_cert = 1;
+    string certificate = 2;
+    uint64 expiresAt = 3;
+    string issuerCert = 4;
+    string private_key = 5;
+}
 
 message NewServiceRequest {
     Service svcDetails = 1;
     string parentServiceDomain = 2;
+}
+message NewServiceResponse {
+    string id = 1;
+    ServiceCredentials cert = 2;
 }    
 message NewDomainRequest {
     ServiceDomain domain = 1;
@@ -41,9 +52,8 @@ message DomainByNameResponse {
     ServiceDomain domain = 2;
 }
 
-
 service APIService {
-    rpc NewService(NewServiceRequest) returns (ID);
+    rpc NewService(NewServiceRequest) returns (NewServiceResponse);
     rpc NewServiceDomain(NewDomainRequest) returns (ID);
 
     rpc GetServiceByID(ID) returns (Service);
