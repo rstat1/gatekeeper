@@ -53,12 +53,19 @@ pub struct Domain {
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
+pub struct Alias {
+	pub alias: String,
+	pub route: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct GatekeeperService {
 	pub id: String,
 	pub name: String,
 	pub internal: bool,
 	pub isFrostSvc: bool,
 	pub healthCheckRoute: String,
+	pub routeAliases: Option<Vec<Alias>>,
 	pub securityPolices: Option<Vec<String>>,
 }
 
@@ -66,6 +73,16 @@ pub struct GatekeeperService {
 pub struct Endpoint {
 	pub port: i16,
 	pub listeningAddress: String,
+}
+
+impl PartialEq for Alias {
+	fn ne(&self, other: &Self) -> bool {
+		!self.alias.eq(&other.alias) && !self.route.eq(&other.route)
+	}
+
+	fn eq(&self, other: &Self) -> bool {
+		self.alias == other.alias && self.route == other.route
+	}
 }
 
 impl DataStore {
@@ -80,6 +97,56 @@ impl DataStore {
 			Ok(c) => Ok(Arc::new(DataStore { client: RwLock::new(c), collectionName: collection, vault, serverEP: epAddr.clone() })),
 			Err(e) => Err(e),
 		}
+	}
+	pub async fn NewServiceDomain(&self, domain: &Domain) -> Result<bool, mongodb::error::Error> {
+		self.retryableQuery(|| async { self.insertUnique("servicedomains", domain, doc! {"base": &domain.base}, None).await })
+			.await
+	}
+	pub async fn NewService(&self, svc: &GatekeeperService, parentDomain: &String) -> Result<bool, mongodb::error::Error> {
+		self.retryableQuery(|| async {
+			let client = self.client.read().await;
+			let mut newSvcSession = client.start_session().await.unwrap();
+			// let mut newSvcSession = self.client.read().unwrap().start_session().await.unwrap();
+
+			let _ = newSvcSession.start_transaction().await;
+			match self.insertUnique("services", svc, doc! {"name": &svc.name}, Some(&mut newSvcSession)).await {
+				Ok(r) => {
+					if r {
+						self.addServiceToDomain(&svc.name, parentDomain, &mut newSvcSession).await
+					} else {
+						Ok(false)
+					}
+				}
+				Err(e) => {
+					let _ = newSvcSession.abort_transaction().await;
+					Err(e)
+				}
+			}
+		})
+		.await
+	}
+	pub async fn AddRouteAliasToService(&self, id: &String, alias: &Alias) -> Result<bool, mongodb::error::Error> {
+		self.retryableQuery(|| async {
+			let coll: Collection<Domain> = self.client.read().await.database(&self.collectionName).collection::<Domain>("services");
+			let svc = self.GetServiceByID(id).await;
+			match svc {
+				Ok(Some(s)) => {
+					if let Some(aliases) = s.routeAliases {
+						if !aliases.is_empty() && aliases.contains(alias) {
+							return Err(mongodb::error::Error::custom("this service already contains a similar alias."));
+						}
+					}
+					let alias_doc = mongodb::bson::to_document(alias)?;
+					match coll.update_one(doc! {"id": id}, doc! {"$addToSet": doc!{"routeAliases": doc!{"$each": [alias_doc]} }}).await {
+						Ok(_) => Ok(true),
+						Err(e) => Err(e),
+					}
+				}
+				Ok(None) => Err(mongodb::error::Error::custom("invalid ID specified")),
+				Err(e) => Err(e),
+			}
+		})
+		.await
 	}
 	pub async fn GetDomainByName(&self, name: &String) -> Result<Option<Domain>, mongodb::error::Error> {
 		self.retryableQuery(|| async {
@@ -141,34 +208,6 @@ impl DataStore {
 		})
 		.await
 	}
-
-	pub async fn NewServiceDomain(&self, domain: &Domain) -> Result<bool, mongodb::error::Error> {
-		self.retryableQuery(|| async { self.insertUnique("servicedomains", domain, doc! {"base": &domain.base}, None).await })
-			.await
-	}
-	pub async fn NewService(&self, svc: &GatekeeperService, parentDomain: &String) -> Result<bool, mongodb::error::Error> {
-		self.retryableQuery(|| async {
-			let client = self.client.read().await;
-			let mut newSvcSession = client.start_session().await.unwrap();
-			// let mut newSvcSession = self.client.read().unwrap().start_session().await.unwrap();
-
-			let _ = newSvcSession.start_transaction().await;
-			match self.insertUnique("services", svc, doc! {"name": &svc.name}, Some(&mut newSvcSession)).await {
-				Ok(r) => {
-					if r {
-						self.addServiceToDomain(&svc.name, parentDomain, &mut newSvcSession).await
-					} else {
-						Ok(false)
-					}
-				}
-				Err(e) => {
-					let _ = newSvcSession.abort_transaction().await;
-					Err(e)
-				}
-			}
-		})
-		.await
-	}
 	pub async fn GetServiceByName(&self, name: &String) -> Result<Option<GatekeeperService>, mongodb::error::Error> {
 		self.retryableQuery(|| async {
 			let servicesColl: Collection<GatekeeperService> = self.client.read().await.database(&self.collectionName).collection("services");
@@ -188,6 +227,24 @@ impl DataStore {
 				Ok(None) => return Ok(None),
 				Err(e) => return Err(e),
 			};
+		})
+		.await
+	}
+	pub async fn GetAllServices(&self) -> Result<Vec<GatekeeperService>, mongodb::error::Error> {
+		self.retryableQuery(|| async {
+			let servicesColl: Collection<GatekeeperService> = self.client.read().await.database(&self.collectionName).collection("services");
+			let cursor = servicesColl.find(doc! {}).await; //.run()?;
+			let mut svcs: Vec<GatekeeperService> = Vec::new();
+
+			match cursor {
+				Ok(mut c) => {
+					while let Some(doc) = c.try_next().await? {
+						svcs.push(doc);
+					}
+					Ok(svcs)
+				}
+				Err(e) => Err(e),
+			}
 		})
 		.await
 	}

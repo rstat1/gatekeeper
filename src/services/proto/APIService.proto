@@ -43,10 +43,16 @@ message NewDomainRequest {
 message ByNameRequest {
     string name = 1;
 }
+message AliasRequest {
+    string ID = 1;
+    string alias = 2;
+    string route = 3;
+}
 
 service APIService {
     rpc NewService(NewServiceRequest) returns (NewServiceResponse);
     rpc NewServiceDomain(NewDomainRequest) returns (ID);
+    rpc NewRouteAlias(AliasRequest) returns (gatekeeper.services.types.Empty);
 
     rpc GetServiceByID(ID) returns (Service);
     rpc GetDomainByID(ID) returns (ServiceDomain);    

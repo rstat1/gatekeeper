@@ -37,6 +37,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 		Self::CTX: Send + Sync,
 	{
 		let host = session.get_header("Host");
+		let uri = session.req_header().uri.clone();
 
 		if let Some(host) = host {
 			let url: Uri = host.to_str().unwrap().parse().unwrap();
@@ -51,26 +52,34 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 			ctx.base = base.clone();
 			ctx.service = urlParts[0].to_string();
 
-			if self.svcs.IsValidDomain(&base) {
-				return Ok(false);
+			if self.epMgr.IsValidDomain(&base) {
+				let (valid, aliasedService) = self.is_valid_service(&urlParts[0].to_string());
+				if valid {
+					if aliasedService != "" {
+						ctx.service = aliasedService;
+					}
+					return Ok(false);
+				}
 			}
 		}
 
-		let h = ResponseHeader::build(400, None).unwrap();
+		let h = ResponseHeader::build(404, None).unwrap();
 		session.write_response_header(Box::new(h), true).await?;
-		session.write_response_body(Some(Bytes::from_static(b"go away!\n")), true).await?;
+		session
+			.write_response_body(Some(Bytes::from(String::into_bytes(self.not_found_error(format!("{}.{}", ctx.service, ctx.base))))), true)
+			.await?;
 		session.set_keepalive(None);
+
 		return Ok(true);
 	}
 
 	async fn upstream_peer(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<Box<HttpPeer>> {
-		let serviceEP = self.svcs.GetServiceEndpoint(&ctx.service);
+		let serviceEP = self.epMgr.GetServiceEndpoint(&ctx.service);
 		if let Some(serviceEP) = serviceEP {
 			let peer = Box::new(HttpPeer::new(serviceEP, false, "".to_string()));
 			Ok(peer)
 		} else {
 			let h = ResponseHeader::build(503, None).unwrap();
-
 			session.write_response_header(Box::new(h), true).await?;
 			session.write_response_body(Some(Bytes::from(String::into_bytes(self.no_endpoint_err()))), true).await?;
 			session.set_keepalive(None);

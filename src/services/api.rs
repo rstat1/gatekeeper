@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use super::{cert_svc::CertManagerSvc, v1::*};
 use crate::{
-	data::{DataStore, Domain, GatekeeperService},
+	data::{Alias, DataStore, Domain, GatekeeperService},
 	vault::Certificate,
 };
 use std::sync::Arc;
@@ -31,6 +31,7 @@ impl APIServiceImpl {
 			internal: svc.internal,
 			healthCheckRoute: svc.health_check_route.clone(),
 			securityPolices: None,
+			routeAliases: None,
 			isFrostSvc: svc.is_frost_service,
 		};
 		let svcCert: Certificate;
@@ -66,6 +67,18 @@ impl APIServiceImpl {
 				}
 				Err("already exists".to_string())
 			}
+			Err(e) => Err(e.to_string()),
+		}
+	}
+	pub async fn NewRouteAlias(&self, alias: &AliasRequest) -> Result<String, String> {
+		match self.db.AddRouteAliasToService(&alias.id, &Alias { alias: alias.alias.clone(), route: alias.route.clone() }).await {
+			Ok(success) => {
+				if success {
+					Ok("success".to_string())
+				} else {
+					Err("".to_string())
+				}
+			}, 
 			Err(e) => Err(e.to_string()),
 		}
 	}

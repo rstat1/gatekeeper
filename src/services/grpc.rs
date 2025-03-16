@@ -90,6 +90,12 @@ impl ApiService for GRPCServer {
 			}
 		}
 	}
+	async fn new_route_alias(&self, request: Request<AliasRequest>) -> Result<Response<Empty>, Status> {
+		match self.apiSvcImpl.NewRouteAlias(request.get_ref()).await {
+			Ok(_) => Ok(Response::new(Empty {})),
+			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
+		}
+	}
 	async fn get_service_by_id(&self, request: Request<Id>) -> Result<Response<Service>, Status> {
 		match self.apiSvcImpl.GetServiceByID(&request.get_ref().id).await {
 			Ok(Some(svc)) => Ok(Response::new(Service {

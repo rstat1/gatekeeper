@@ -35,6 +35,7 @@ fn main() {
 	let acme: Arc<CertManagerSvc>;
 	let conf: SystemConfiguration;
 	let srImpl: Arc<EndpointManagerImpl>;
+	let svcsList: Vec<GatekeeperService>;
 	let mut server = Server::new(None).unwrap();
 	let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
 
@@ -91,12 +92,18 @@ fn main() {
 		Err(e) => panic!("{:?}", e),
 	}
 
+	let async_get_svcs = async { db.GetAllServices().await };
+	match rt.block_on(async_get_svcs) {
+		Ok(list) => svcsList = list,
+		Err(e) => panic!("{:?}", e),
+	}
+
 	apiImpl = APIServiceImpl::new(db.clone(), acme.clone());
 
 	let dynamic_cert = DynamicCert::new();
 	let tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
 
-	let mut proxy = pingora_proxy::http_proxy_service(&server.configuration, ReverseProxy::new(srImpl.clone()));
+	let mut proxy = pingora_proxy::http_proxy_service(&server.configuration, ReverseProxy::new(srImpl.clone(), svcsList));
 	proxy.add_tcp(&conf.listenerAddr);
 	proxy.add_tls_with_settings(&conf.tlsListenerAddr, None, tls_settings);
 
