@@ -25,8 +25,7 @@ pub mod endpoint_manager;
 pub mod grpc;
 
 pub mod v1 {
-	grpc_include!("gatekeeper.api.v1");
-	grpc_include!("gatekeeper.endpoint_manager.v1");
+	grpc_include!("gatekeeper.config.v1");
 }
 pub mod types {
 	grpc_include!("gatekeeper.services.types");

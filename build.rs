@@ -17,10 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		.include_file(format!("{}/{}", gen_file_path.clone(), "gen.rs"))
 		.file_descriptor_set_path(gen_file_path.clone() + "/descriptors.bin")
 		.out_dir(gen_file_path.clone())
-		.compile_protos(
-			&["src/services/proto/types.proto", "src/services/proto/EndpointManager.proto", "src/services/proto/APIService.proto"],
-			&["src/services/proto"],
-		)
+		.compile_protos(&["src/services/proto/types.proto", "src/services/proto/APIService.proto"], &["src/services/proto"])
 		.unwrap();
 	Ok(())
 }

@@ -1,6 +1,6 @@
 syntax = "proto3";
-package gatekeeper.api.v1;
-option go_package = "/api/v1";
+package gatekeeper.config.v1;
+option go_package = "/config/v1";
 
 import "types.proto";
 
@@ -36,10 +36,22 @@ message NewServiceRequest {
 message NewServiceResponse {
     string id = 1;
     ServiceCredentials cert = 2;
-}    
+}
 message NewDomainRequest {
     ServiceDomain domain = 1;
-}    
+}
+message NewServiceEndpoint {
+    string serviceName = 1;
+    repeated string tags = 2;
+    string endpoint = 3;
+}
+
+message ServiceEndpointRequest {
+	string name = 1;
+}
+message ServiceEndpointResponse {
+	string endpont = 1;
+}
 message ByNameRequest {
     string name = 1;
 }
@@ -61,4 +73,7 @@ service APIService {
 
     rpc DeleteDomain(ID) returns (gatekeeper.services.types.Empty);
     rpc DeleteService(ID) returns (gatekeeper.services.types.Empty);
+
+    rpc RegisterServiceEndpoint(NewServiceEndpoint) returns (gatekeeper.services.types.Empty);
+    rpc GetServiceEndpoint(ServiceEndpointRequest) returns (ServiceEndpointResponse);
 }
