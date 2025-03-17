@@ -22,7 +22,7 @@ use gatekeeper::services::api::APIServiceImpl;
 use gatekeeper::services::cert_svc::CertManagerSvc;
 use gatekeeper::services::endpoint_manager::EndpointManagerImpl;
 use gatekeeper::services::grpc::GRPCServer;
-use gatekeeper::vault::{DBCredentials, VaultClient};
+use gatekeeper::vault::{DBCredentials, VaultClient, Certificate};
 
 fn main() {
 	tracing_subscriber::fmt::init();
@@ -34,6 +34,7 @@ fn main() {
 	let vault: Arc<VaultClient>;
 	let acme: Arc<CertManagerSvc>;
 	let conf: SystemConfiguration;
+	let apiServiceCert: Certificate;
 	let srImpl: Arc<EndpointManagerImpl>;
 	let svcsList: Vec<GatekeeperService>;
 	let mut server = Server::new(None).unwrap();
@@ -103,6 +104,21 @@ fn main() {
 	let dynamic_cert = DynamicCert::new();
 	let tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
 
+	let certPath = Path::new("certs/svcs/gatekeeper.cert");
+
+	if !certPath.exists() {
+		let async_get_server_cert = async { acme.GenerateServiceCert(&"gatekeeper".to_string()).await };
+		match rt.block_on(async_get_server_cert) {
+			Ok(cert) => apiServiceCert = cert,
+			Err(e) => panic!("{:?}", e),
+		}
+	} else {
+		let async_get_server_cert = async { acme.GetExistingServiceCert("gatekeeper".to_string()).await };
+		match rt.block_on(async_get_server_cert) {
+			Ok(cert) => apiServiceCert = cert,
+			Err(e) => panic!("{:?}", e),
+		}
+	}
 	let mut proxy = pingora_proxy::http_proxy_service(&server.configuration, ReverseProxy::new(srImpl.clone(), svcsList));
 	proxy.add_tcp(&conf.listenerAddr);
 	proxy.add_tls_with_settings(&conf.tlsListenerAddr, None, tls_settings);
@@ -111,7 +127,7 @@ fn main() {
 		let grpcRT = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 		let grpcTask = async {
 			let addr = "0.0.0.0:2000".parse().unwrap();
-			GRPCServer::InitAndServe(addr, srImpl.clone(), Arc::new(apiImpl)).await;
+			GRPCServer::InitAndServe(addr, srImpl.clone(), Arc::new(apiImpl), apiServiceCert).await;
 		};
 		grpcRT.block_on(grpcTask);
 	});

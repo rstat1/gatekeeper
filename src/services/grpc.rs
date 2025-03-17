@@ -6,14 +6,16 @@
 */
 
 use std::{net::SocketAddr, sync::Arc};
-use tonic::{transport::Server, Request, Response, Status};
-use tracing::error;
+use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
+use tonic::{Request, Response, Status};
+use tracing::{debug, error};
 
 use super::{api::APIServiceImpl, endpoint_manager::EndpointManagerImpl, types::Empty};
 use crate::grpc_fd_set;
 use crate::services::v1::api_service_server::*;
 use crate::services::v1::endpoint_manager_server::*;
 use crate::services::v1::*;
+use crate::vault::Certificate as VaultCertificate;
 
 pub(crate) const FD_SET: &[u8] = grpc_fd_set!("descriptors");
 
@@ -24,12 +26,27 @@ pub struct GRPCServer {
 }
 
 impl GRPCServer {
-	pub async fn InitAndServe(addr: SocketAddr, sr: Arc<EndpointManagerImpl>, api: Arc<APIServiceImpl>) {
+	pub async fn InitAndServe(addr: SocketAddr, sr: Arc<EndpointManagerImpl>, api: Arc<APIServiceImpl>, serverCert: VaultCertificate) {
 		let srv = GRPCServer { svcRegistryImpl: Arc::clone(&sr), apiSvcImpl: Arc::clone(&api) };
 		let svcReg = EndpointManagerServer::new(srv.clone());
 		let api = ApiServiceServer::new(srv.clone());
 		let reflectSvc = tonic_reflection::server::Builder::configure().register_encoded_file_descriptor_set(FD_SET).build_v1().unwrap();
-		match Server::builder().add_service(svcReg).add_service(api).add_service(reflectSvc).serve(addr).await {
+
+		let serverID = Identity::from_pem(serverCert.certificate, serverCert.private_key);
+		let clientCACert = serverCert.issuing_ca;
+		let clientCACert = Certificate::from_pem(clientCACert);
+
+		let tls = ServerTlsConfig::new().identity(serverID).client_ca_root(clientCACert);
+
+		match Server::builder()
+			.tls_config(tls)
+			.unwrap()
+			.add_service(svcReg)
+			.add_service(api)
+			.add_service(reflectSvc)
+			.serve(addr)
+			.await
+		{
 			Ok(_) => {}
 			Err(e) => {
 				error!("{:?}", e)

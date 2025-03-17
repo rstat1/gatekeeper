@@ -9,6 +9,7 @@ use base64::{alphabet, engine, engine::general_purpose, Engine};
 use http_body_util::{BodyExt, Full};
 use instant_acme::ChallengeType;
 use instant_acme::{Account, AccountCredentials, BytesResponse, ExternalAccountKey, HttpClient, Identifier, NewAccount, NewOrder};
+use std::path::Path;
 use std::{error::Error, future::Future, pin::Pin, sync::Arc};
 use tracing::{debug, error, info};
 
@@ -89,6 +90,25 @@ impl CertManagerSvc {
 				}
 			}
 			Err(e) => Err(e),
+		}
+	}
+	pub async fn GetExistingServiceCert(&self, serviceName: String) -> Result<Certificate, String> {
+		let certPathStr = format!("certs/svcs/{}.cert", serviceName);
+		let certPath = Path::new(certPathStr.as_str());
+		if certPath.exists() {
+			let conf_file = std::fs::read_to_string(certPath);
+			match conf_file {
+				Ok(file) => match self.vault.Decrypt("platform", file.as_str()).await {
+					Ok(r) => {
+						let key_decoded = engine::GeneralPurpose::new(&alphabet::STANDARD, general_purpose::PAD).decode(r.plaintext).unwrap();
+						Ok::<Certificate, String>(serde_json::from_slice(&key_decoded).unwrap())
+					}
+					Err(e) => Err(e),
+				},
+				Err(e) => panic!("{:?}", e),
+			}
+		} else {
+			Err(format!("cert for service {} does not exist", serviceName))
 		}
 	}
 	pub async fn GenerateACMECert(&self, serviceName: &String) -> Result<bool, String> {

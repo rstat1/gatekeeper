@@ -92,6 +92,15 @@ pub struct TransitEncryptRequest {
 	pub plaintext: String,
 }
 
+#[derive(Builder, Debug, Default, Endpoint)]
+#[endpoint(path = "/v1/transit/decrypt/{self.key_name}", method = "POST", response = "DecryptedResponse", builder = "true")]
+#[builder(setter(into, strip_option), default)]
+pub struct TransitDecryptRequest {
+	#[endpoint(skip)]
+	pub key_name: String,
+	pub ciphertext: String,
+}
+
 #[derive(Deserialize, Debug, Default, Serialize)]
 pub struct Certificate {
 	pub ca_chain: Option<Vec<String>>,
@@ -176,7 +185,11 @@ pub struct KVReadResponse {
 pub struct EncryptedResponse {
 	pub ciphertext: String,
 }
-
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecryptedResponse {
+	pub plaintext: String,
+}
 struct AddTokenMiddleware {
 	pub token: String,
 }
@@ -379,6 +392,22 @@ impl VaultClient {
 		let plaintext_encoded = engine::GeneralPurpose::new(&alphabet::STANDARD, general_purpose::PAD).encode(plaintext);
 		let req = TransitEncryptRequest::builder().key_name(key_name.to_string()).plaintext(plaintext_encoded).build().unwrap();
 		let result = req.with_middleware(&self.atm).exec(&self.httpClient).await.unwrap().wrap::<VaultResult<_>>();
+		match result {
+			Ok(r) => Ok(getActualResponse(r).unwrap()),
+			Err(e) => {
+				match &e {
+					ClientError::ServerResponseError { code, content } => error!("{}: {:?}", code, content),
+					ClientError::ResponseParseError { source, content } => error!("{}: {:?}", source, content),
+					_ => error!("{}", &e),
+				}
+				Err(e.to_string())
+			}
+		}
+	}
+	pub async fn Decrypt(&self, key_name: &str, cipherText: &str) -> Result<DecryptedResponse, String> {
+		let req = TransitDecryptRequest::builder().key_name(key_name.to_string()).ciphertext(cipherText).build().unwrap();
+		let result = req.with_middleware(&self.atm).exec(&self.httpClient).await.unwrap().wrap::<VaultResult<_>>();
+
 		match result {
 			Ok(r) => Ok(getActualResponse(r).unwrap()),
 			Err(e) => {
