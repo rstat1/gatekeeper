@@ -13,6 +13,7 @@ use tracing::{debug, error};
 use super::{api::APIServiceImpl, endpoint_manager::EndpointManagerImpl, types::Empty};
 use crate::grpc_fd_set;
 use crate::services::v1::api_service_server::*;
+use crate::services::v1::endpoint_manager_server::*;
 use crate::services::v1::*;
 use crate::vault::Certificate as VaultCertificate;
 
@@ -27,7 +28,7 @@ pub struct GRPCServer {
 impl GRPCServer {
 	pub async fn InitAndServe(addr: SocketAddr, sr: Arc<EndpointManagerImpl>, api: Arc<APIServiceImpl>, serverCert: VaultCertificate) {
 		let srv = GRPCServer { svcRegistryImpl: Arc::clone(&sr), apiSvcImpl: Arc::clone(&api) };
-		// let svcReg = EndpointManagerServer::new(srv.clone());
+		let svcReg = EndpointManagerServer::new(srv.clone());
 		let api = ApiServiceServer::new(srv.clone());
 		let reflectSvc = tonic_reflection::server::Builder::configure().register_encoded_file_descriptor_set(FD_SET).build_v1().unwrap();
 
@@ -40,7 +41,7 @@ impl GRPCServer {
 		match Server::builder()
 			.tls_config(tls)
 			.unwrap()
-			// .add_service(svcReg)
+			.add_service(svcReg)
 			.add_service(api)
 			.add_service(reflectSvc)
 			.serve(addr)
@@ -54,6 +55,26 @@ impl GRPCServer {
 	}
 }
 
+#[tonic::async_trait]
+impl EndpointManager for GRPCServer {
+	async fn register_service_endpoint(&self, request: Request<NewServiceEndpoint>) -> Result<Response<Empty>, Status> {
+		let reply = Empty {};
+
+		let svcInfo = request.get_ref();
+		self.svcRegistryImpl.RegisterServiceEndpoint(&svcInfo.service_name, &svcInfo.endpoint);
+
+		Ok(Response::new(reply))
+	}
+	async fn get_service_endpoint(&self, request: Request<ServiceEndpointRequest>) -> Result<Response<ServiceEndpointResponse>, Status> {
+		let req = request.get_ref();
+		let ep = self.svcRegistryImpl.GetServiceEndpoint(&req.name);
+		if let Some(ep) = ep {
+			Ok(Response::new(ServiceEndpointResponse { endpont: ep.to_string() }))
+		} else {
+			Err(Status::new(tonic::Code::InvalidArgument, format!("unknown service: {}", req.name)))
+		}
+	}
+}
 #[tonic::async_trait]
 impl ApiService for GRPCServer {
 	async fn new_service(&self, request: Request<NewServiceRequest>) -> Result<Response<NewServiceResponse>, Status> {
@@ -164,23 +185,6 @@ impl ApiService for GRPCServer {
 				}
 			}
 			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
-		}
-	}
-	async fn register_service_endpoint(&self, request: Request<NewServiceEndpoint>) -> Result<Response<Empty>, Status> {
-		let reply = Empty {};
-
-		let svcInfo = request.get_ref();
-		self.svcRegistryImpl.RegisterServiceEndpoint(&svcInfo.service_name, &svcInfo.endpoint);
-
-		Ok(Response::new(reply))
-	}
-	async fn get_service_endpoint(&self, request: Request<ServiceEndpointRequest>) -> Result<Response<ServiceEndpointResponse>, Status> {
-		let req = request.get_ref();
-		let ep = self.svcRegistryImpl.GetServiceEndpoint(&req.name);
-		if let Some(ep) = ep {
-			Ok(Response::new(ServiceEndpointResponse { endpont: ep.to_string() }))
-		} else {
-			Err(Status::new(tonic::Code::InvalidArgument, format!("unknown service: {}", req.name)))
 		}
 	}
 }
