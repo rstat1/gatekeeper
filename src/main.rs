@@ -11,6 +11,7 @@
 
 use pingora::listeners::tls::TlsSettings;
 use pingora::prelude::*;
+use pingora::services::listening::Service as ListeningService;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -22,7 +23,7 @@ use gatekeeper::services::api::APIServiceImpl;
 use gatekeeper::services::cert_svc::CertManagerSvc;
 use gatekeeper::services::endpoint_manager::EndpointManagerImpl;
 use gatekeeper::services::grpc::GRPCServer;
-use gatekeeper::vault::{DBCredentials, VaultClient, Certificate};
+use gatekeeper::vault::{Certificate, DBCredentials, VaultClient};
 
 fn main() {
 	tracing_subscriber::fmt::init();
@@ -79,6 +80,12 @@ fn main() {
 		Err(e) => panic!("{:?}", e),
 	}
 
+	let async_get_svcs = async { db.GetAllServices().await };
+	match rt.block_on(async_get_svcs) {
+		Ok(list) => svcsList = list,
+		Err(e) => panic!("{:?}", e),
+	}
+
 	let async_ac_init = async { CertManagerSvc::new(vault.clone()).await };
 	match rt.block_on(async_ac_init) {
 		Ok(ac) => acme = Arc::new(ac),
@@ -87,15 +94,9 @@ fn main() {
 		}
 	}
 
-	let async_sri_init = async { EndpointManagerImpl::new(db.clone()).await };
+	let async_sri_init = async { EndpointManagerImpl::new(db.clone(), svcsList.clone(), conf.healthCheckInterval).await };
 	match rt.block_on(async_sri_init) {
-		Ok(sri) => srImpl = Arc::new(sri),
-		Err(e) => panic!("{:?}", e),
-	}
-
-	let async_get_svcs = async { db.GetAllServices().await };
-	match rt.block_on(async_get_svcs) {
-		Ok(list) => svcsList = list,
+		Ok(sri) => srImpl = sri,
 		Err(e) => panic!("{:?}", e),
 	}
 
@@ -119,6 +120,10 @@ fn main() {
 			Err(e) => panic!("{:?}", e),
 		}
 	}
+
+	let mut prometheus_service_http = ListeningService::prometheus_http_service();
+	prometheus_service_http.add_tcp("127.0.0.1:6150");
+
 	let mut proxy = pingora_proxy::http_proxy_service(&server.configuration, ReverseProxy::new(srImpl.clone(), svcsList));
 	proxy.add_tcp(&conf.listenerAddr);
 	proxy.add_tls_with_settings(&conf.tlsListenerAddr, None, tls_settings);
@@ -133,5 +138,6 @@ fn main() {
 	});
 
 	server.add_service(proxy);
+	server.add_service(prometheus_service_http);
 	server.run_forever();
 }

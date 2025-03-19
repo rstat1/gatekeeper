@@ -61,17 +61,29 @@ impl EndpointManager for GRPCServer {
 		let reply = Empty {};
 
 		let svcInfo = request.get_ref();
-		self.svcRegistryImpl.RegisterServiceEndpoint(&svcInfo.service_name, &svcInfo.endpoint);
-
-		Ok(Response::new(reply))
+		match self.svcRegistryImpl.RegisterServiceEndpoint(&svcInfo) {
+			Ok(_) => Ok(Response::new(reply)),
+			Err(e) => Err(Status::new(tonic::Code::InvalidArgument, format!("error registering service endpoint: {}", e))),
+		}
 	}
 	async fn get_service_endpoint(&self, request: Request<ServiceEndpointRequest>) -> Result<Response<ServiceEndpointResponse>, Status> {
 		let req = request.get_ref();
-		let ep = self.svcRegistryImpl.GetServiceEndpoint(&req.name);
+
+		let name = match &req.name {
+			Some(service_endpoint_request::Name::Service(n)) => n,
+			Some(service_endpoint_request::Name::Endpoint(n)) => n,
+			None => &"".to_string(),
+		};
+
+		if name == "" {
+			return Err(Status::new(tonic::Code::InvalidArgument, "no name specified"));
+		}
+
+		let ep = self.svcRegistryImpl.GetServiceEndpoint(name);
 		if let Some(ep) = ep {
-			Ok(Response::new(ServiceEndpointResponse { endpont: ep.to_string() }))
+			Ok(Response::new(ServiceEndpointResponse { endpoint: ep.to_string() }))
 		} else {
-			Err(Status::new(tonic::Code::InvalidArgument, format!("unknown service: {}", req.name)))
+			Err(Status::new(tonic::Code::InvalidArgument, format!("unknown service: {}", name)))
 		}
 	}
 }
@@ -120,7 +132,6 @@ impl ApiService for GRPCServer {
 				is_frost_service: svc.isFrostSvc,
 				name: svc.name,
 				internal: svc.internal,
-				health_check_route: svc.healthCheckRoute,
 				security_policies: svc.securityPolices.unwrap_or(Vec::default()),
 			})),
 			Ok(None) => Err(Status::new(tonic::Code::NotFound, "servicw with the provided ID doesn't not exist")),
@@ -134,7 +145,6 @@ impl ApiService for GRPCServer {
 				is_frost_service: svc.isFrostSvc,
 				name: svc.name,
 				internal: svc.internal,
-				health_check_route: svc.healthCheckRoute,
 				security_policies: svc.securityPolices.unwrap_or(Vec::default()),
 			})),
 			Ok(None) => Err(Status::new(tonic::Code::NotFound, "servicw with the provided ID doesn't not exist")),
@@ -143,10 +153,11 @@ impl ApiService for GRPCServer {
 	}
 	async fn get_domain_by_id(&self, request: Request<Id>) -> Result<Response<ServiceDomain>, Status> {
 		match self.apiSvcImpl.GetDomainByID(&request.get_ref().id).await {
-			Ok(Some(svc)) => Ok(Response::new(ServiceDomain {
-				base: svc.base,
-				attached_services: svc.services,
-				domain_security_policies: svc.securityPolicies.unwrap_or(Vec::default()),
+			Ok(Some(d)) => Ok(Response::new(ServiceDomain {
+				base: d.base,
+				attached_services: d.services,
+				gatekeeper_managed_certs: d.gatekeeperManagedCerts,
+				domain_security_policies: d.securityPolicies.unwrap_or(Vec::default()),
 			})),
 			Ok(None) => Err(Status::new(tonic::Code::NotFound, "service with the provided ID doesn't not exist")),
 			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
@@ -154,12 +165,13 @@ impl ApiService for GRPCServer {
 	}
 	async fn get_domain_by_name(&self, request: Request<ByNameRequest>) -> Result<Response<ServiceDomain>, tonic::Status> {
 		match self.apiSvcImpl.GetDomainByName(&request.get_ref().name).await {
-			Ok(Some(svc)) => Ok(Response::new(ServiceDomain {
-				base: svc.base,
-				attached_services: svc.services,
-				domain_security_policies: svc.securityPolicies.unwrap_or(Vec::default()),
+			Ok(Some(d)) => Ok(Response::new(ServiceDomain {
+				base: d.base,
+				attached_services: d.services,
+				gatekeeper_managed_certs: d.gatekeeperManagedCerts,
+				domain_security_policies: d.securityPolicies.unwrap_or(Vec::default()),
 			})),
-			Ok(None) => Err(Status::new(tonic::Code::NotFound, "service with the provided ID doesn't not exist")),
+			Ok(None) => Err(Status::new(tonic::Code::NotFound, "service with the provided name doesn't not exist")),
 			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
 		}
 	}

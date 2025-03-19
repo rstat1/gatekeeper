@@ -12,12 +12,12 @@ message ServiceDomain {
     string base = 1;
     repeated string attachedServices = 2;
     repeated string domainSecurityPolicies = 3;
+    bool gatekeeperManagedCerts = 4;
 }    
 message Service {
     string name = 1;
     bool internal = 2;
     bool isFrostService = 3;
-    string healthCheckRoute = 4;
     repeated string securityPolicies = 5;
     string id = 6;
 }    

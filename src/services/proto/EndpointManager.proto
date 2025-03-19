@@ -5,19 +5,32 @@ option go_package = "/endpoint_manager/v1";
 import "types.proto";
 
 message NewServiceEndpoint {
+    //Name of the service registering the endpoint
     string serviceName = 1;
+    //User specified tags that aren't used by Gatekeeper for anything
     repeated string tags = 2;
+    //IP address and port of the endpoint
     string endpoint = 3;
+    //Useful when a service has multiple endpoints that point to different components of that service.
+    //Clients can use this to lookup an endpoint for a specific service component.
+    string endpointName = 4;
+    //The endpoint mnaager will periodically make requests to this route to determine whether service is sill 
+    //alive. If the service does not respond within a configurable time period its endpoint will be removed
+    //from the active list.
+    string healthCheckRoute = 5;
 }
 
 message ServiceEndpointRequest {
-	string name = 1;
+    oneof name {
+        string service = 1;
+        string endpoint = 2;
+    }
 }
 message ServiceEndpointResponse {
-	string endpont = 1;
+	string endpoint = 1;
 }
 
 service EndpointManager {
-    rpc RegisterServiceEndpoint(NewServiceEndpoint) returns (gatekeeper.services.types.Empty);
     rpc GetServiceEndpoint(ServiceEndpointRequest) returns (ServiceEndpointResponse);
+    rpc RegisterServiceEndpoint(NewServiceEndpoint) returns (gatekeeper.services.types.Empty);
 }

@@ -29,7 +29,6 @@ impl APIServiceImpl {
 			id: Uuid::now_v7().to_string(),
 			name: svc.name.clone(),
 			internal: svc.internal,
-			healthCheckRoute: svc.health_check_route.clone(),
 			securityPolices: None,
 			routeAliases: None,
 			isFrostSvc: svc.is_frost_service,
@@ -58,7 +57,14 @@ impl APIServiceImpl {
 		}
 	}
 	pub async fn NewServiceDomain(&self, domain: &ServiceDomain) -> Result<String, String> {
-		let d: Domain = Domain { id: Uuid::now_v7().to_string(), base: domain.base.clone(), frostCompatEnabled: false, securityPolicies: None, services: Vec::new() };
+		let d: Domain = Domain {
+			id: Uuid::now_v7().to_string(),
+			base: domain.base.clone(),
+			frostCompatEnabled: false,
+			securityPolicies: None,
+			services: Vec::new(),
+			gatekeeperManagedCerts: domain.gatekeeper_managed_certs,
+		};
 
 		match self.db.NewServiceDomain(&d).await {
 			Ok(success) => {
@@ -78,7 +84,7 @@ impl APIServiceImpl {
 				} else {
 					Err("".to_string())
 				}
-			}, 
+			}
 			Err(e) => Err(e.to_string()),
 		}
 	}
