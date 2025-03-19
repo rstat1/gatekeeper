@@ -64,14 +64,14 @@ impl ReverseProxy {
 			"503".to_string(),
 			"Service Unavailable".to_string(),
 			"There are no endpoints registered for this service.".to_string(),
-			"This is likely do to a configuration issue or because all available instances of the service has crashed.".to_string(),
+			"This is likely do to a configuration issue or because all available instances of the service have crashed.".to_string(),
 		)
 	}
 	pub(super) fn not_found_error(&self, routeOrSvc: String) -> String {
 		self.generate_err_page(
 			"404".to_string(),
 			"Not Found".to_string(),
-			format!("Unknown route or service: {}", routeOrSvc),
+			format!("Unknown route or service: <code>{}</code>", routeOrSvc),
 			"The requested URL is unknown to this server".to_string(),
 		)
 	}
