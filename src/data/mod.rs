@@ -6,13 +6,13 @@
 */
 
 use futures::stream::TryStreamExt;
-use mongodb::bson::{doc, Document};
-use mongodb::error::ErrorKind;
-use mongodb::{Client, ClientSession, Collection};
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-use std::future::Future;
-use std::sync::Arc;
+use mongodb::{
+	bson::{doc, Document},
+	error::ErrorKind,
+	Client, ClientSession, Collection,
+};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::{future::Future, sync::Arc};
 use tokio::sync::RwLock;
 
 use crate::vault::VaultClient;
@@ -38,6 +38,8 @@ pub struct SystemConfiguration {
 	pub tlsListenerAddr: String,
 	#[serde(rename = "listenOn")]
 	pub listenerAddr: String,
+	#[serde(rename = "pingIntervalSecs")]
+	pub healthCheckInterval: Option<u64>,
 }
 
 /// A ServiceDomain is used to assign services to a base domain.
@@ -49,6 +51,7 @@ pub struct Domain {
 	pub base: String,
 	pub services: Vec<String>,
 	pub frostCompatEnabled: bool,
+	pub gatekeeperManagedCerts: bool,
 	pub securityPolicies: Option<Vec<String>>,
 }
 
@@ -64,7 +67,6 @@ pub struct GatekeeperService {
 	pub name: String,
 	pub internal: bool,
 	pub isFrostSvc: bool,
-	pub healthCheckRoute: String,
 	pub routeAliases: Option<Vec<Alias>>,
 	pub securityPolices: Option<Vec<String>>,
 }
