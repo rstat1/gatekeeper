@@ -2,3 +2,4 @@
 gatekeeper_config
 **/generated/**
 **/certs/**
+dbg-cmds
