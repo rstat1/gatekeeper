@@ -85,6 +85,17 @@ impl PartialEq for Alias {
 	}
 }
 
+impl PartialEq for GatekeeperService {
+	fn eq(&self, other: &Self) -> bool {
+		self.id == other.id
+			&& self.name == other.name
+			&& self.internal == other.internal
+			&& self.isFrostSvc == other.isFrostSvc
+			&& self.routeAliases == other.routeAliases
+			&& self.securityPolices == other.securityPolices
+	}
+}
+
 impl DataStore {
 	pub async fn new(username: &String, password: &String, epAddr: &String, collection: String, vault: Arc<VaultClient>) -> Result<Arc<Self>, mongodb::error::Error> {
 		let mongoEP = format!(
