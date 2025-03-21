@@ -7,7 +7,7 @@
 package v1
 
 import (
-	types "gatekeeper/sdk/rpc/types"
+	types "go.alargerobot.dev/gatekeeper/sdk/rpc/types"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -112,8 +112,6 @@ type ServiceEndpointRequest struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Should be formatted like so: "//<service-name>:<endpoint-name>/<optional;tag;list>"
-	// So: //volt:volt.build.v1.CBSWorkerService/worker;amd64
-	// Or: //newgemini:gemini.v1.WorldStateService
 	Query string `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
 }
 

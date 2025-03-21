@@ -1,4 +1,4 @@
-module gatekeeper/sdk
+module go.alargerobot.dev/gatekeeper/sdk
 
 go 1.24.1
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	v1 "gatekeeper/sdk/rpc/endpoint_manager/v1"
+	v1 "go.alargerobot.dev/gatekeeper/sdk/rpc/endpoint_manager/v1"
 	"net/http"
 	"os"
 	"path/filepath"
