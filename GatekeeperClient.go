@@ -83,7 +83,7 @@ func (gc *GatekeeperClient) RegisterGRPCServiceEndpoint(serviceName, grpcService
 		Endpoint:         address,
 		ServiceName:      serviceName,
 		EndpointName:     grpcServiceName,
-		HealthCheckRoute: "/ping",
+		HealthCheckRoute: "http://" + address + ":" + strconv.Itoa(gc.healthCheckServerPort) + "/ping",
 	})
 	return e
 }
@@ -97,7 +97,7 @@ func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string,
 		Endpoint:         address,
 		ServiceName:      serviceName,
 		EndpointName:     serviceName,
-		HealthCheckRoute: "/ping",
+		HealthCheckRoute: "http://" + address + ":" + strconv.Itoa(gc.healthCheckServerPort) + "/ping",
 	})
 	return e
 }
