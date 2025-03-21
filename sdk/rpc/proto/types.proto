@@ -1,0 +1,5 @@
+syntax = "proto3";
+package gatekeeper.services.types;
+option go_package = "/types";
+
+message Empty {}
