@@ -79,10 +79,11 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 //   - tags are optional, specify []string{} if no tags are to applied
 func (gc *GatekeeperClient) RegisterGRPCServiceEndpoint(serviceName, grpcServiceName, address string, tags []string) error {
 	_, e := gc.endpointManager.RegisterServiceEndpoint(context.Background(), &v1.NewServiceEndpoint{
-		Tags:         tags,
-		Endpoint:     address,
-		ServiceName:  serviceName,
-		EndpointName: grpcServiceName,
+		Tags:             tags,
+		Endpoint:         address,
+		ServiceName:      serviceName,
+		EndpointName:     grpcServiceName,
+		HealthCheckRoute: "/ping",
 	})
 	return e
 }
@@ -92,10 +93,11 @@ func (gc *GatekeeperClient) RegisterGRPCServiceEndpoint(serviceName, grpcService
 //   - tags are optional, specify []string{} if no tags are to applied
 func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string, tags []string) error {
 	_, e := gc.endpointManager.RegisterServiceEndpoint(context.Background(), &v1.NewServiceEndpoint{
-		Tags:         tags,
-		Endpoint:     address,
-		ServiceName:  serviceName,
-		EndpointName: serviceName,
+		Tags:             tags,
+		Endpoint:         address,
+		ServiceName:      serviceName,
+		EndpointName:     serviceName,
+		HealthCheckRoute: "/ping",
 	})
 	return e
 }
