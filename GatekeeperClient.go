@@ -77,10 +77,10 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 // RegisterGRPCServiceEndpoint registers a gRPC service reachable at "address" with Gatekeeper
 //   - address should be formated: <ip-address:port>
 //   - tags are optional, specify []string{} if no tags are to applied
-func (gc *GatekeeperClient) RegisterGRPCServiceEndpoint(serviceName, grpcServiceName, address string, tags []string) error {
+func (gc *GatekeeperClient) RegisterGRPCServiceEndpoint(serviceName, grpcServiceName, address string, port int, tags []string) error {
 	_, e := gc.endpointManager.RegisterServiceEndpoint(context.Background(), &v1.NewServiceEndpoint{
 		Tags:             tags,
-		Endpoint:         address,
+		Endpoint:         address + ":" + strconv.Itoa(port),
 		ServiceName:      serviceName,
 		EndpointName:     grpcServiceName,
 		HealthCheckRoute: "http://" + address + ":" + strconv.Itoa(gc.healthCheckServerPort) + "/ping",
@@ -91,10 +91,10 @@ func (gc *GatekeeperClient) RegisterGRPCServiceEndpoint(serviceName, grpcService
 // RegisterServiceEndpoint registers a non-gRPC service reachable at "address" with Gatekeeper
 //   - address should be formated: <ip-address:port>
 //   - tags are optional, specify []string{} if no tags are to applied
-func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string, tags []string) error {
+func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string, port int, tags []string) error {
 	_, e := gc.endpointManager.RegisterServiceEndpoint(context.Background(), &v1.NewServiceEndpoint{
 		Tags:             tags,
-		Endpoint:         address,
+		Endpoint:         address + ":" + strconv.Itoa(port),
 		ServiceName:      serviceName,
 		EndpointName:     serviceName,
 		HealthCheckRoute: "http://" + address + ":" + strconv.Itoa(gc.healthCheckServerPort) + "/ping",
