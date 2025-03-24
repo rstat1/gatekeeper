@@ -11,6 +11,10 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use http::{HeaderValue, Uri};
 use pingora::{
+	modules::http::{
+		grpc_web::{GrpcWeb, GrpcWebBridge},
+		HttpModules,
+	},
 	Error,
 	ErrorType::{self, Custom, CustomCode, HTTPStatus, InternalError},
 };
@@ -34,6 +38,22 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 	type CTX = RequestContext;
 	fn new_ctx(&self) -> Self::CTX {
 		RequestContext { base: String::new(), service: String::new(), currentPeer: None, redirectToStaticServer: false }
+	}
+
+	fn init_downstream_modules(&self, modules: &mut HttpModules) {
+		// Add the gRPC web module
+		modules.add_module(Box::new(GrpcWeb))
+	}
+
+	async fn early_request_filter(&self, session: &mut Session, _ctx: &mut Self::CTX) -> Result<()> {
+		if let Some(isGRPCWeb) = session.get_header("content-type") {
+			if isGRPCWeb.to_str().unwrap().to_string().starts_with("application/grpc-web") {
+				let grpc = session.downstream_modules_ctx.get_mut::<GrpcWebBridge>().expect("grpc-web module added");
+				grpc.init();
+			}
+		}
+
+		Ok(())
 	}
 
 	async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool>
