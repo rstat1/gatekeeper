@@ -27,14 +27,14 @@ pub mod gateway;
 pub struct DynamicCert;
 pub struct ReverseProxy {
 	svcNames: Vec<String>,
+	staticFileServerAddr: String,
 	epMgr: Arc<EndpointManagerImpl>,
 	aliasToSvc: HashMap<String, String>,
 }
 
-const ERROR_PAGE: &'static str = include_str!("error_page.html");
 
 impl ReverseProxy {
-	pub fn new(epMgr: Arc<EndpointManagerImpl>, svcs: Vec<GatekeeperService>) -> Self {
+	pub fn new(epMgr: Arc<EndpointManagerImpl>, svcs: Vec<GatekeeperService>, staticFileServerAddr: &String) -> Self {
 		let mut svcNames: Vec<String> = Vec::default();
 		let mut aliasToSvc: HashMap<String, String> = HashMap::default();
 
@@ -47,34 +47,10 @@ impl ReverseProxy {
 			}
 		}
 
-		ReverseProxy { epMgr, svcNames, aliasToSvc }
+		ReverseProxy { epMgr, svcNames, aliasToSvc, staticFileServerAddr: staticFileServerAddr.clone() }
 	}
-	pub(super) fn generate_err_page(&self, code: String, error: String, err_details: String, reason: String) -> String {
-		let mut page = ERROR_PAGE.to_string();
 
-		page = page.replace("##ERROR##", &error);
-		page = page.replace("##ERROR_CODE##", &code);
-		page = page.replace("##ERROR_REASON##", &reason);
-		page = page.replace("##ERROR_DESCRIPTION##", &err_details);
-
-		return page;
-	}
-	pub(super) fn no_endpoint_err(&self) -> String {
-		self.generate_err_page(
-			"503".to_string(),
-			"Service Unavailable".to_string(),
-			"There are no endpoints registered for this service.".to_string(),
-			"This is likely do to a configuration issue or because all available instances of the service have crashed.".to_string(),
-		)
-	}
-	pub(super) fn not_found_error(&self, routeOrSvc: String) -> String {
-		self.generate_err_page(
-			"404".to_string(),
-			"Not Found".to_string(),
-			format!("Unknown route or service: <code>{}</code>", routeOrSvc),
-			"The requested URL is unknown to this server".to_string(),
-		)
-	}
+	
 	pub(super) fn is_valid_service(&self, svc: &String) -> (bool, String) {
 		if self.svcNames.contains(svc) {
 			(true, "".to_string())

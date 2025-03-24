@@ -23,6 +23,7 @@ pub mod api;
 pub mod cert_svc;
 pub mod endpoint_manager;
 pub mod grpc;
+pub mod static_file_server;
 
 pub mod v1 {
 	grpc_include!("gatekeeper.api.v1");

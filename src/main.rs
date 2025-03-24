@@ -9,6 +9,7 @@
 //messages about formatting that shouldn't be complier warnings.
 #![allow(nonstandard_style)]
 
+use gatekeeper::services::static_file_server::StaticFileServer;
 use pingora::listeners::tls::TlsSettings;
 use pingora::prelude::*;
 use pingora::services::listening::Service as ListeningService;
@@ -103,7 +104,9 @@ fn main() {
 	apiImpl = APIServiceImpl::new(db.clone(), acme.clone());
 
 	let dynamic_cert = DynamicCert::new();
-	let tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
+	let mut tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
+	tls_settings.enable_h2();
+	// tls_settings.enable_ocsp_stapling();
 
 	let certPath = Path::new("certs/svcs/gatekeeper.cert");
 
@@ -121,11 +124,16 @@ fn main() {
 		}
 	}
 
+	let mut staticServer: ListeningService<StaticFileServer> = StaticFileServer::new().Service();
+	staticServer.add_tcp(conf.staticFileServerAddr.clone().unwrap_or("0.0.0.0:10000".to_string()).as_str());
+
 	let mut prometheus_service_http = ListeningService::prometheus_http_service();
 	prometheus_service_http.add_tcp("127.0.0.1:6150");
 
-	let mut proxy = pingora_proxy::http_proxy_service(&server.configuration, ReverseProxy::new(srImpl.clone(), svcsList));
-	proxy.add_tcp(&conf.listenerAddr);
+	let mut proxy = pingora_proxy::http_proxy_service(
+		&server.configuration,
+		ReverseProxy::new(srImpl.clone(), svcsList, &conf.staticFileServerAddr.unwrap_or("0.0.0.0:10000".to_string())),
+	);
 	proxy.add_tls_with_settings(&conf.tlsListenerAddr, None, tls_settings);
 
 	std::thread::spawn(move || {
@@ -138,6 +146,7 @@ fn main() {
 	});
 
 	server.add_service(proxy);
+	server.add_service(staticServer);
 	server.add_service(prometheus_service_http);
 	server.run_forever();
 }

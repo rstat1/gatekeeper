@@ -40,6 +40,7 @@ pub struct SystemConfiguration {
 	pub listenerAddr: String,
 	#[serde(rename = "pingIntervalSecs")]
 	pub healthCheckInterval: Option<u64>,
+	pub staticFileServerAddr: Option<String>,
 }
 
 /// A ServiceDomain is used to assign services to a base domain.
