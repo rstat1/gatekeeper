@@ -96,10 +96,10 @@ impl EndpointManagerImpl {
 		match epMap {
 			Ok(mut m) => {
 				if let Some(eps) = m.get_mut(&request.endpoint_name) {
-					debug!("added endpoint {} to service {}", &request.endpoint, &request.service_name);
+					debug!("added endpoint {} to service {} with hcr {}", &request.endpoint, &request.service_name, &request.health_check_route);
 					eps.push(RegisteredEndpoint { address: request.endpoint.parse().unwrap(), healthCheckRoute: request.health_check_route.clone() });
 				} else {
-					debug!("added new endpoint {} at {}", &request.endpoint_name, &request.endpoint);
+					debug!("added new endpoint {} at {} with hcr {}", &request.endpoint_name, &request.endpoint, &request.health_check_route);
 					m.insert(
 						request.endpoint_name.clone(),
 						vec![RegisteredEndpoint { address: request.endpoint.parse().unwrap(), healthCheckRoute: request.health_check_route.clone() }],
@@ -122,8 +122,9 @@ impl EndpointManagerImpl {
 					if eps.len() > 1 {
 						//TODO: Random selection?
 						return Some(eps[0].address.clone());
+					} else if eps.len() != 0 {
+						return Some(eps[0].address.clone());
 					}
-					return Some(eps[0].address.clone());
 				}
 				return None;
 			}
@@ -132,6 +133,21 @@ impl EndpointManagerImpl {
 			}
 		}
 		None
+	}
+	pub fn RemoveServiceEndpoint(&self, name: &String, endpoint: SocketAddr) {
+		let epMap = self.epMap.try_lock();
+		match epMap {
+			Ok(mut m) => {
+				if let Some(eps) = m.get_mut(name) {
+					if eps.len() != 0 {
+						eps.remove_elem(|e| e.address == endpoint);
+					}
+				}
+			}
+			Err(e) => {
+				error!("{:?}", e)
+			}
+		}
 	}
 	fn startHealthCheck(self: &Arc<Self>, ttl: u64) {
 		let hc = Arc::new(HealthChecker { client: Arc::clone(&self) });
@@ -153,10 +169,11 @@ impl HealthChecker {
 								let mut to_remove = Vec::new();
 								for rep in val.iter() {
 									info!("checking svc: {key}, rep: {rep}");
-									match hcClient.get(format!("http://{}/{}", rep.address.clone().to_string(), rep.healthCheckRoute)).send().await {
+									match hcClient.get(rep.healthCheckRoute.clone()).send().await {
 										Ok(_) => {}
 										Err(e) => {
-											if e.is_timeout() {
+											if e.is_timeout() || e.is_connect() {
+												warn!("adding {key} endpoint to removal list because it failed to respond to a ping");
 												to_remove.push(rep.address);
 											}
 										}
