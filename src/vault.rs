@@ -101,7 +101,7 @@ pub struct TransitDecryptRequest {
 	pub ciphertext: String,
 }
 
-#[derive(Deserialize, Debug, Default, Serialize)]
+#[derive(Deserialize, Debug, Default, Serialize, Clone)]
 pub struct Certificate {
 	pub ca_chain: Option<Vec<String>>,
 	pub certificate: String,

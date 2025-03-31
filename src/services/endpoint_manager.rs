@@ -168,12 +168,23 @@ impl HealthChecker {
 							if !val.is_empty() {
 								let mut to_remove = Vec::new();
 								for rep in val.iter() {
-									info!("checking svc: {key}, rep: {rep}");
+									debug!("checking svc: {key}, rep: {rep}");
 									match hcClient.get(rep.healthCheckRoute.clone()).send().await {
-										Ok(_) => {}
+										Ok(r) => match r.text().await {
+											Ok(b) => {
+												if b != "pong" {
+													error!("inproper response, adding {key} endpoint to removal list");
+													to_remove.push(rep.address);
+												}
+											}
+											Err(e) => {
+												error!("adding {key} endpoint to removal list due to an error: {}", e);
+												to_remove.push(rep.address);
+											}
+										},
 										Err(e) => {
 											if e.is_timeout() || e.is_connect() {
-												warn!("adding {key} endpoint to removal list because it failed to respond to a ping");
+												error!("adding {key} endpoint to removal list because it failed to respond to a ping");
 												to_remove.push(rep.address);
 											}
 										}
