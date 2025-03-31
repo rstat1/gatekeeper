@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	v1 "go.alargerobot.dev/gatekeeper/sdk/rpc/endpoint_manager/v1"
 
@@ -77,13 +79,19 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 // RegisterGRPCServiceEndpoint registers a gRPC service reachable at "address" with Gatekeeper
 //   - address should be formated: <ip-address:port>
 //   - tags are optional, specify []string{} if no tags are to applied
-func (gc *GatekeeperClient) RegisterGRPCServiceEndpoint(serviceName, grpcServiceName, address string, port int, tags []string) error {
+func (gc *GatekeeperClient) RegisterGRPCServiceEndpoint(serviceName, grpcServiceName, address string, tags []string) error {
+	addrParts := strings.Split(address, ":")
+
+	if len(addrParts) != 2 {
+		return errors.New("invalid address specified. address format is: <ip-address:port>")
+	}
+
 	_, e := gc.endpointManager.RegisterServiceEndpoint(context.Background(), &v1.NewServiceEndpoint{
 		Tags:             tags,
-		Endpoint:         address + ":" + strconv.Itoa(port),
+		Endpoint:         address,
 		ServiceName:      serviceName,
 		EndpointName:     grpcServiceName,
-		HealthCheckRoute: "http://" + address + ":" + strconv.Itoa(gc.config.HealthCheckPort) + "/ping",
+		HealthCheckRoute: "http://" + addrParts[0] + ":" + strconv.Itoa(gc.config.HealthCheckPort) + "/ping",
 	})
 	return e
 }
@@ -91,13 +99,19 @@ func (gc *GatekeeperClient) RegisterGRPCServiceEndpoint(serviceName, grpcService
 // RegisterServiceEndpoint registers a non-gRPC service reachable at "address" with Gatekeeper
 //   - address should be formated: <ip-address:port>
 //   - tags are optional, specify []string{} if no tags are to applied
-func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string, port int, tags []string) error {
+func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string, tags []string) error {
+	addrParts := strings.Split(address, ":")
+
+	if len(addrParts) != 2 {
+		return errors.New("invalid address specified. address format is: <ip-address:port>")
+	}
+
 	_, e := gc.endpointManager.RegisterServiceEndpoint(context.Background(), &v1.NewServiceEndpoint{
 		Tags:             tags,
-		Endpoint:         address + ":" + strconv.Itoa(port),
+		Endpoint:         address,
 		ServiceName:      serviceName,
 		EndpointName:     serviceName,
-		HealthCheckRoute: "http://" + address + ":" + strconv.Itoa(gc.config.HealthCheckPort) + "/ping",
+		HealthCheckRoute: "http://" + addrParts[0] + ":" + strconv.Itoa(gc.config.HealthCheckPort) + "/ping",
 	})
 	return e
 }
