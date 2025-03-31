@@ -4,21 +4,26 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	v1 "go.alargerobot.dev/gatekeeper/sdk/rpc/endpoint_manager/v1"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+
+	v1 "go.alargerobot.dev/gatekeeper/sdk/rpc/endpoint_manager/v1"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
 type GatekeeperClient struct {
-	healthCheckServerPort int
-	gkAPIAddr             string
-	grpcClient            *grpc.ClientConn
-	endpointManager       v1.EndpointManagerClient
+	config          GatekeeperClientConfig
+	grpcClient      *grpc.ClientConn
+	endpointManager v1.EndpointManagerClient
+}
+
+type GatekeeperClientConfig struct {
+	HealthcheckPort   int
+	GatekeeperAPIAddr string
 }
 
 // # Description
@@ -36,7 +41,7 @@ type GatekeeperClient struct {
 //   - .key for the private key.
 //
 // Also present should be the Gatekeeper root CA certificate in a file named: "gkca.pem"
-func NewGatekeeperClient(healthCheckServerPort int, gatekeeperAPIAddr string) *GatekeeperClient {
+func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 	cert, err := tls.LoadX509KeyPair(filepath.Base(os.Args[0])+".crt", filepath.Base(os.Args[0])+".key")
 	if err != nil {
 		panic(err)
@@ -47,7 +52,7 @@ func NewGatekeeperClient(healthCheckServerPort int, gatekeeperAPIAddr string) *G
 
 	ca.AppendCertsFromPEM(caFile)
 
-	grpcClient, e := grpc.NewClient("dns:///"+gatekeeperAPIAddr, grpc.WithTransportCredentials(
+	grpcClient, e := grpc.NewClient("dns:///"+config.GatekeeperAPIAddr, grpc.WithTransportCredentials(
 		credentials.NewTLS(&tls.Config{
 			ServerName:   "gatekeeper",
 			Certificates: []tls.Certificate{cert},
@@ -59,10 +64,9 @@ func NewGatekeeperClient(healthCheckServerPort int, gatekeeperAPIAddr string) *G
 	}
 
 	gkc := &GatekeeperClient{
-		grpcClient:            grpcClient,
-		gkAPIAddr:             gatekeeperAPIAddr,
-		healthCheckServerPort: healthCheckServerPort,
-		endpointManager:       v1.NewEndpointManagerClient(grpcClient),
+		config:          config,
+		grpcClient:      grpcClient,
+		endpointManager: v1.NewEndpointManagerClient(grpcClient),
 	}
 
 	go gkc.startHealthCheckServer()
@@ -72,7 +76,7 @@ func NewGatekeeperClient(healthCheckServerPort int, gatekeeperAPIAddr string) *G
 
 // RegisterGRPCServiceEndpoint registers a gRPC service reachable at "address" with Gatekeeper
 //   - address should be formated: <ip-address:port>
-//	 - tags are optional, specify []string{} if no tags are to applied
+//   - tags are optional, specify []string{} if no tags are to applied
 func (gc *GatekeeperClient) RegisterGRPCServiceEndpoint(serviceName, grpcServiceName, address string, tags []string) error {
 	_, e := gc.endpointManager.RegisterServiceEndpoint(context.Background(), &v1.NewServiceEndpoint{
 		Tags:         tags,
@@ -85,7 +89,7 @@ func (gc *GatekeeperClient) RegisterGRPCServiceEndpoint(serviceName, grpcService
 
 // RegisterServiceEndpoint registers a non-gRPC service reachable at "address" with Gatekeeper
 //   - address should be formated: <ip-address:port>
-//	 - tags are optional, specify []string{} if no tags are to applied
+//   - tags are optional, specify []string{} if no tags are to applied
 func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string, tags []string) error {
 	_, e := gc.endpointManager.RegisterServiceEndpoint(context.Background(), &v1.NewServiceEndpoint{
 		Tags:         tags,
@@ -97,7 +101,7 @@ func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string,
 }
 
 func (gc *GatekeeperClient) startHealthCheckServer() error {
-	err := http.ListenAndServe(":"+strconv.Itoa(gc.healthCheckServerPort), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	err := http.ListenAndServe(":"+strconv.Itoa(gc.config.HealthcheckPort), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/ping" {
 			w.WriteHeader(404)
 		} else {
