@@ -22,7 +22,7 @@ type GatekeeperClient struct {
 }
 
 type GatekeeperClientConfig struct {
-	HealthcheckPort   int
+	HealthCheckPort   int
 	GatekeeperAPIAddr string
 }
 
@@ -64,8 +64,8 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 	}
 
 	gkc := &GatekeeperClient{
-		config:          config,
 		grpcClient:      grpcClient,
+		config:          config,
 		endpointManager: v1.NewEndpointManagerClient(grpcClient),
 	}
 
@@ -83,7 +83,7 @@ func (gc *GatekeeperClient) RegisterGRPCServiceEndpoint(serviceName, grpcService
 		Endpoint:         address + ":" + strconv.Itoa(port),
 		ServiceName:      serviceName,
 		EndpointName:     grpcServiceName,
-		HealthCheckRoute: "http://" + address + ":" + strconv.Itoa(gc.healthCheckServerPort) + "/ping",
+		HealthCheckRoute: "http://" + address + ":" + strconv.Itoa(gc.config.HealthCheckPort) + "/ping",
 	})
 	return e
 }
@@ -97,13 +97,13 @@ func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string,
 		Endpoint:         address + ":" + strconv.Itoa(port),
 		ServiceName:      serviceName,
 		EndpointName:     serviceName,
-		HealthCheckRoute: "http://" + address + ":" + strconv.Itoa(gc.healthCheckServerPort) + "/ping",
+		HealthCheckRoute: "http://" + address + ":" + strconv.Itoa(gc.config.HealthCheckPort) + "/ping",
 	})
 	return e
 }
 
 func (gc *GatekeeperClient) startHealthCheckServer() error {
-	err := http.ListenAndServe(":"+strconv.Itoa(gc.config.HealthcheckPort), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	err := http.ListenAndServe(":"+strconv.Itoa(gc.config.HealthCheckPort), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/ping" {
 			w.WriteHeader(404)
 		} else {
