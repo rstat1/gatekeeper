@@ -132,7 +132,7 @@ fn main() {
 
 	let mut proxy = pingora_proxy::http_proxy_service(
 		&server.configuration,
-		ReverseProxy::new(srImpl.clone(), svcsList, &conf.staticFileServerAddr.unwrap_or("0.0.0.0:10000".to_string())),
+		ReverseProxy::new(srImpl.clone(), svcsList, &conf.staticFileServerAddr.unwrap_or("0.0.0.0:10000".to_string()), &apiServiceCert),
 	);
 	proxy.add_tls_with_settings(&conf.tlsListenerAddr, None, tls_settings);
 

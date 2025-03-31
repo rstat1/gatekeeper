@@ -5,7 +5,7 @@
 * found in the included LICENSE file.
 */
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -15,6 +15,10 @@ use pingora::{
 		grpc_web::{GrpcWeb, GrpcWebBridge},
 		HttpModules,
 	},
+	protocols::ALPN,
+	tls::{pkey::PKey, ssl::NameType, x509::X509},
+	upstreams::peer::{Peer, PeerOptions},
+	utils::tls::CertKey,
 	Error,
 	ErrorType::{self, Custom, CustomCode, HTTPStatus, InternalError},
 };
@@ -22,13 +26,16 @@ use pingora_core::upstreams::peer::HttpPeer;
 use pingora_core::Result;
 use pingora_http::ResponseHeader;
 use pingora_proxy::{ProxyHttp, Session};
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
+use tracing_subscriber::field::debug;
 
 use crate::{data::DataStore, no_endpoint_err, not_found_error};
 
 pub struct RequestContext {
 	base: String,
 	service: String,
+	grpcService: String,
+	isGRPCService: bool,
 	redirectToStaticServer: bool,
 	currentPeer: Option<SocketAddr>,
 }
@@ -37,7 +44,7 @@ pub struct RequestContext {
 impl ProxyHttp for crate::gw::ReverseProxy {
 	type CTX = RequestContext;
 	fn new_ctx(&self) -> Self::CTX {
-		RequestContext { base: String::new(), service: String::new(), currentPeer: None, redirectToStaticServer: false }
+		RequestContext { base: String::new(), service: String::new(), currentPeer: None, redirectToStaticServer: false, isGRPCService: false, grpcService: String::new() }
 	}
 
 	fn init_downstream_modules(&self, modules: &mut HttpModules) {
@@ -68,7 +75,11 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 			uri = session.get_header("Host").unwrap().to_str().unwrap().parse().unwrap();
 		}
 
-		if !(uri.path().starts_with("/api") || uri.path().starts_with("/rpc")) {
+		if let Some(isGRPC) = session.get_header("content-type") {
+			ctx.isGRPCService = isGRPC.to_str().unwrap() == "application/grpc";
+		}
+
+		if !uri.path().starts_with("/api") && !ctx.isGRPCService {
 			ctx.redirectToStaticServer = true;
 			return Ok(false);
 		}
@@ -84,6 +95,10 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 
 		ctx.base = base.clone();
 		ctx.service = urlParts[0].to_string();
+
+		if ctx.isGRPCService {
+			ctx.grpcService = uri.path().split("/").collect::<Vec<&str>>()[1].to_string();
+		}
 
 		if self.epMgr.IsValidDomain(&base) {
 			let (valid, aliasedService) = self.is_valid_service(&urlParts[0].to_string());
@@ -111,11 +126,43 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 			return Ok(peer);
 		}
 
-		let serviceEP = self.epMgr.GetServiceEndpoint(&ctx.service);
+		let mut svcNameForLookup: String;
+		debug! {"serving request to service: {}", &ctx.service};
+
+		if ctx.isGRPCService {
+			svcNameForLookup = ctx.grpcService.clone();
+		} else {
+			svcNameForLookup = ctx.service.clone();
+		}
+
+		let serviceEP = self.epMgr.GetServiceEndpoint(&svcNameForLookup);
 		if let Some(serviceEP) = serviceEP {
+			debug!("serving gRPC request {:?}", serviceEP);
 			ctx.currentPeer = Some(serviceEP);
-			let peer = Box::new(HttpPeer::new(serviceEP, false, "".to_string()));
-			Ok(peer)
+			if ctx.isGRPCService {
+				let caChain = self.grpcCert.ca_chain.as_ref().unwrap();
+
+				let cert = X509::from_pem(&Bytes::from(self.grpcCert.certificate.clone())).unwrap();
+				let caInt = X509::from_pem(&Bytes::from(caChain[0].clone())).unwrap();
+				let caRoot = X509::from_pem(&Bytes::from(caChain[1].clone())).unwrap();
+
+				let key = PKey::private_key_from_pem(&Bytes::from(self.grpcCert.private_key.clone())).unwrap();
+				let mut peer = HttpPeer::new(serviceEP, true, ctx.service.clone());
+				let mut peerOpts = PeerOptions::new();
+
+				peer.client_cert_key = Some(Arc::new(CertKey::new(vec![cert], key)));
+				peerOpts.alpn = ALPN::H2;
+				peerOpts.ca = Some(Arc::new(Box::new([caInt.clone(), caRoot.clone()])));
+				peer.options = peerOpts;
+
+				debug!("{:?}", peer);
+
+				let peerBox = Box::new(peer);
+				Ok(peerBox)
+			} else {
+				let peer = Box::new(HttpPeer::new(serviceEP, false, "".to_string()));
+				Ok(peer)
+			}
 		} else {
 			let h = ResponseHeader::build(503, None).unwrap();
 			session.write_response_header(Box::new(h), true).await?;
@@ -126,11 +173,14 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 		}
 	}
 
-	fn fail_to_connect(&self, _session: &mut Session, peer: &HttpPeer, _ctx: &mut Self::CTX, e: Box<Error>) -> Box<Error> {
-		if e.etype == ErrorType::ConnectRefused {
-			return Box::new(Error { etype: e.etype, esource: e.esource, retry: pingora::RetryType::Decided(false), cause: e.cause, context: None });
-		}
-		Box::new(Error { etype: e.etype, esource: e.esource, retry: pingora::RetryType::Decided(true), cause: e.cause, context: None })
+	fn error_while_proxy(&self, peer: &HttpPeer, session: &mut Session, e: Box<Error>, _ctx: &mut Self::CTX, client_reused: bool) -> Box<Error> {
+		let mut e = e.more_context(format!("Peer: {}", peer));
+		// only reused client connections where retry buffer is not truncated
+		e.retry.decide_reuse(client_reused && !session.as_ref().retry_buffer_truncated());
+
+		error!("proxy err: {}", e);
+
+		e
 	}
 
 	async fn fail_to_proxy(&self, session: &mut Session, e: &Error, ctx: &mut Self::CTX) -> u16
@@ -151,8 +201,8 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 			session.write_response_header(Box::new(h), true).await.unwrap();
 			session.write_response_body(Some(Bytes::from(String::into_bytes(no_endpoint_err()))), true).await.unwrap();
 			session.set_keepalive(None);
-			503
-		} else {
+			return 503;
+		} else if ctx.redirectToStaticServer {
 			let h = ResponseHeader::build(404, None).unwrap();
 			session.write_response_header(Box::new(h), true).await.unwrap();
 			session
@@ -161,8 +211,10 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 				.unwrap();
 			session.set_keepalive(None);
 
-			404
+			return 404;
 		}
+		error!("error: {}, ctx: {:?}", e, e.context);
+		502
 	}
 
 	async fn response_filter(&self, _session: &mut Session, _upstream_response: &mut ResponseHeader, _ctx: &mut Self::CTX) -> Result<()>

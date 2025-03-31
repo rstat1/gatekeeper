@@ -11,30 +11,29 @@
 #![allow(unused)]
 
 use http::Uri;
-use pingora::tls::pkey::PKey;
-use pingora::tls::ssl::NameType;
-use pingora::tls::x509::X509;
+use pingora::tls::{pkey::PKey, ssl::NameType, x509::X509};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tonic::async_trait;
-use tracing::debug;
+use tracing::{debug, error};
 
 use crate::data::{Alias, DataStore, GatekeeperService};
 use crate::services::endpoint_manager::EndpointManagerImpl;
+use crate::vault::Certificate;
 
 pub mod gateway;
 pub struct DynamicCert;
 pub struct ReverseProxy {
 	svcNames: Vec<String>,
+	grpcCert: Certificate,
 	staticFileServerAddr: String,
 	epMgr: Arc<EndpointManagerImpl>,
 	aliasToSvc: HashMap<String, String>,
 }
 
-
 impl ReverseProxy {
-	pub fn new(epMgr: Arc<EndpointManagerImpl>, svcs: Vec<GatekeeperService>, staticFileServerAddr: &String) -> Self {
+	pub fn new(epMgr: Arc<EndpointManagerImpl>, svcs: Vec<GatekeeperService>, staticFileServerAddr: &String, gkCert: &Certificate) -> Self {
 		let mut svcNames: Vec<String> = Vec::default();
 		let mut aliasToSvc: HashMap<String, String> = HashMap::default();
 
@@ -47,10 +46,9 @@ impl ReverseProxy {
 			}
 		}
 
-		ReverseProxy { epMgr, svcNames, aliasToSvc, staticFileServerAddr: staticFileServerAddr.clone() }
+		ReverseProxy { epMgr, svcNames, aliasToSvc, staticFileServerAddr: staticFileServerAddr.clone(), grpcCert: gkCert.clone() }
 	}
 
-	
 	pub(super) fn is_valid_service(&self, svc: &String) -> (bool, String) {
 		if self.svcNames.contains(svc) {
 			(true, "".to_string())
