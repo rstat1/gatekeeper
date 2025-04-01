@@ -1,10 +1,19 @@
 package sdk
 
 import (
+	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -26,6 +35,17 @@ type GatekeeperClient struct {
 type GatekeeperClientConfig struct {
 	HealthCheckPort   int
 	GatekeeperAPIAddr string
+}
+
+type DeviceAuthRequest struct {
+	Message   string
+	RequestID string
+}
+
+type DeviceAuthClientResponse struct {
+	Message   string
+	Signature string
+	RequestID string
 }
 
 // # Description
@@ -76,6 +96,8 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 	return gkc
 }
 
+// # Description
+//
 // RegisterGRPCServiceEndpoint registers a gRPC service reachable at "address" with Gatekeeper
 //   - address should be formated: <ip-address:port>
 //   - tags are optional, specify []string{} if no tags are to applied
@@ -96,6 +118,8 @@ func (gc *GatekeeperClient) RegisterGRPCServiceEndpoint(serviceName, grpcService
 	return e
 }
 
+// # Description
+//
 // RegisterServiceEndpoint registers a non-gRPC service reachable at "address" with Gatekeeper
 //   - address should be formated: <ip-address:port>
 //   - tags are optional, specify []string{} if no tags are to applied
@@ -114,6 +138,73 @@ func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string,
 		HealthCheckRoute: "http://" + addrParts[0] + ":" + strconv.Itoa(gc.config.HealthCheckPort) + "/ping",
 	})
 	return e
+}
+
+// # Description
+//
+// BeginExternalDeviceLogin starts the authentication process for an external device.
+//
+// # Details
+//
+// This is for the case when you have some IoT like device that needs to connect to a Gatekeeper
+// service. This functionn request from the server, some a randomly generated message that should
+// passed to FinishExternalDevice login for signing by service's certificate, and returned with the
+// provided request ID.
+func (gc *GatekeeperClient) BeginExternalDeviceLogin() (dar DeviceAuthRequest, e error) {
+	req, _ := http.NewRequest("GET", "https://"+gc.config.GatekeeperAPIAddr+"/device_auth/begin", http.NoBody)
+	req.Header.Add("Content-Type", "application/x-gatekeeper-device-auth")
+	if resp, err := http.DefaultClient.Do(req); err == nil {
+		if resp.StatusCode == 200 {
+			if reqDetails, e := io.ReadAll(resp.Body); e == nil {
+				if e := json.Unmarshal(reqDetails, &dar); e != nil {
+					return DeviceAuthRequest{}, e
+				}
+				return dar, nil
+			} else {
+				return DeviceAuthRequest{}, e
+			}
+		} else {
+			return DeviceAuthRequest{}, errors.New("not allowed")
+		}
+	} else {
+		return DeviceAuthRequest{}, err
+	}
+}
+
+// # Description
+//
+// FinishExternalDeviceLogin finishes the authentication process for an external device.
+//
+// # Details
+//
+// Takes the “message“ provided in the parameter named “dar“, signs it with the service's
+// certificate and returns to Gatkeeper for validation.
+func (gc *GatekeeperClient) FinishExternalDeviceLogin(dar DeviceAuthRequest) error {
+	privKeyBytes, _ := os.ReadFile(filepath.Base(os.Args[0]) + ".key")
+	if privKey, e := pem.Decode(privKeyBytes); e == nil {
+		privateKey, err := x509.ParsePKCS8PrivateKey(privKey.Bytes)
+		if err != nil {
+			return fmt.Errorf("failed to parse private key type: %s", err)
+		}
+
+		hash := sha256.Sum256([]byte(dar.Message))
+		if sig, err := ecdsa.SignASN1(rand.Reader, privateKey.(*ecdsa.PrivateKey), hash[:]); err == nil {
+			dacr, _ := json.Marshal(DeviceAuthClientResponse{
+				Message:   dar.Message,
+				RequestID: dar.RequestID,
+				Signature: base64.StdEncoding.EncodeToString(sig),
+			})
+
+			_, err := http.DefaultClient.Post("https://"+gc.config.GatekeeperAPIAddr+"/device_auth/finish", "application/x-gatekeeper-device-auth", bytes.NewReader(dacr))
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	} else {
+		return fmt.Errorf("failed to decode private key type: %s", e)
+	}
 }
 
 func (gc *GatekeeperClient) startHealthCheckServer() error {
