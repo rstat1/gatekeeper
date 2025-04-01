@@ -152,7 +152,7 @@ func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string,
 //
 //   - serviceURL should be a combo of the service's name and the service domain it belongs to:
 //   - Example: gktest.test.alargerobot.dev
-func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) error {
+func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) (string, error) {
 	var dar DeviceAuthRequest
 	req, _ := http.NewRequest("GET", "https://"+serviceURL+"/device_auth/begin", http.NoBody)
 	req.Header.Add("Content-Type", "application/x-gatekeeper-device-auth")
@@ -164,7 +164,7 @@ func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) error {
 					if privKey, e := pem.Decode(privKeyBytes); e == nil {
 						privateKey, err := x509.ParsePKCS8PrivateKey(privKey.Bytes)
 						if err != nil {
-							return fmt.Errorf("failed to parse private key type: %s", err)
+							return "", fmt.Errorf("failed to parse private key type: %s", err)
 						}
 
 						hash := sha256.Sum256([]byte(dar.Message))
@@ -174,26 +174,33 @@ func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) error {
 								RequestID: dar.RequestID,
 								Signature: base64.StdEncoding.EncodeToString(sig),
 							})
-							_, err := http.DefaultClient.Post("https://"+gc.config.GatekeeperAPIAddress+"/device_auth/finish", "application/x-gatekeeper-device-auth", bytes.NewReader(dacr))
+							r, err := http.DefaultClient.Post("https://"+gc.config.GatekeeperAPIAddress+"/device_auth/finish", "application/x-gatekeeper-device-auth", bytes.NewReader(dacr))
 							if err != nil {
-								return err
+								return "", err
+							}
+							resp, _ := io.ReadAll(r.Body)
+							if r.StatusCode != 200 {
+								return "", errors.New(string(resp))
+							} else {
+								return string(resp), nil
 							}
 						} else {
-							return err
+							return "", err
 						}
+					} else {
+						panic(e)
 					}
 				} else {
 					panic(e)
 				}
-				return nil
 			} else {
-				return e
+				return "", e
 			}
 		} else {
-			return errors.New("not allowed")
+			return "", errors.New("not allowed")
 		}
 	} else {
-		return err
+		return "", err
 	}
 }
 func (gc *GatekeeperClient) startHealthCheckServer() error {
