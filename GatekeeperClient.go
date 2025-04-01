@@ -162,13 +162,13 @@ func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) (string, er
 				if e := json.Unmarshal(reqDetails, &dar); e == nil {
 					privKeyBytes, _ := os.ReadFile(filepath.Base(os.Args[0]) + ".key")
 					if privKey, _ := pem.Decode(privKeyBytes); privKey != nil {
-						privateKey, err := x509.ParsePKCS8PrivateKey(privKey.Bytes)
+						privateKey, err := x509.ParseECPrivateKey(privKey.Bytes)
 						if err != nil {
 							return "", fmt.Errorf("failed to parse private key type: %s", err)
 						}
 
 						hash := sha256.Sum256([]byte(dar.Message))
-						if sig, err := ecdsa.SignASN1(rand.Reader, privateKey.(*ecdsa.PrivateKey), hash[:]); err == nil {
+						if sig, err := ecdsa.SignASN1(rand.Reader, privateKey, hash[:]); err == nil {
 							dacr, _ := json.Marshal(DeviceAuthClientResponse{
 								Message:   dar.Message,
 								RequestID: dar.RequestID,
