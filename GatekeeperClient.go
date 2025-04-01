@@ -159,7 +159,7 @@ func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) error {
 	if resp, err := http.DefaultClient.Do(req); err == nil {
 		if resp.StatusCode == 200 {
 			if reqDetails, e := io.ReadAll(resp.Body); e == nil {
-				if e := json.Unmarshal(reqDetails, &dar); e != nil {
+				if e := json.Unmarshal(reqDetails, &dar); e == nil {
 					privKeyBytes, _ := os.ReadFile(filepath.Base(os.Args[0]) + ".key")
 					if privKey, e := pem.Decode(privKeyBytes); e == nil {
 						privateKey, err := x509.ParsePKCS8PrivateKey(privKey.Bytes)
@@ -182,6 +182,8 @@ func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) error {
 							return err
 						}
 					}
+				} else {
+					panic(e)
 				}
 				return nil
 			} else {
