@@ -174,7 +174,7 @@ func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) (string, er
 								RequestID: dar.RequestID,
 								Signature: base64.StdEncoding.EncodeToString(sig),
 							})
-							r, err := http.DefaultClient.Post("https://"+gc.config.GatekeeperAPIAddress+"/device_auth/finish", "application/x-gatekeeper-device-auth", bytes.NewReader(dacr))
+							r, err := http.DefaultClient.Post("https://"+serviceURL+"/device_auth/finish", "application/x-gatekeeper-device-auth", bytes.NewReader(dacr))
 							if err != nil {
 								return "", err
 							}
