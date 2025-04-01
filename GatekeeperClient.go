@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
@@ -21,6 +20,7 @@ import (
 	"strings"
 
 	v1 "go.alargerobot.dev/gatekeeper/sdk/rpc/endpoint_manager/v1"
+	"golang.org/x/crypto/sha3"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -166,7 +166,7 @@ func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) (string, er
 						if err != nil {
 							return "", fmt.Errorf("failed to parse private key type: %s", err)
 						}
-						hash := sha256.Sum256([]byte(dar.Message))
+						hash := sha3.Sum384([]byte(dar.Message))
 						if sig, err := ecdsa.SignASN1(rand.Reader, privateKey, hash[:]); err == nil {
 							dacr, _ := json.Marshal(DeviceAuthClientResponse{
 								Message:   base64.StdEncoding.EncodeToString([]byte(dar.Message)),
