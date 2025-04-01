@@ -161,7 +161,7 @@ func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) (string, er
 			if reqDetails, e := io.ReadAll(resp.Body); e == nil {
 				if e := json.Unmarshal(reqDetails, &dar); e == nil {
 					privKeyBytes, _ := os.ReadFile(filepath.Base(os.Args[0]) + ".key")
-					if privKey, e := pem.Decode(privKeyBytes); e == nil {
+					if privKey, _ := pem.Decode(privKeyBytes); privKey != nil {
 						privateKey, err := x509.ParsePKCS8PrivateKey(privKey.Bytes)
 						if err != nil {
 							return "", fmt.Errorf("failed to parse private key type: %s", err)
@@ -188,7 +188,7 @@ func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) (string, er
 							return "", err
 						}
 					} else {
-						panic(e)
+						return "", errors.New("failed to find pem block")
 					}
 				} else {
 					panic(e)
