@@ -33,8 +33,8 @@ type GatekeeperClient struct {
 }
 
 type GatekeeperClientConfig struct {
-	HealthCheckPort   int
-	GatekeeperAPIAddr string
+	HealthCheckPort      int
+	GatekeeperAPIAddress string
 }
 
 type DeviceAuthRequest struct {
@@ -74,7 +74,7 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 
 	ca.AppendCertsFromPEM(caFile)
 
-	grpcClient, e := grpc.NewClient("dns:///"+config.GatekeeperAPIAddr, grpc.WithTransportCredentials(
+	grpcClient, e := grpc.NewClient("dns:///"+config.GatekeeperAPIAddress, grpc.WithTransportCredentials(
 		credentials.NewTLS(&tls.Config{
 			ServerName:   "gatekeeper",
 			Certificates: []tls.Certificate{cert},
@@ -140,73 +140,60 @@ func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string,
 	return e
 }
 
-// # Description
-//
-// BeginExternalDeviceLogin starts the authentication process for an external device.
+// DoExternalDeviceLogin authenticates an external device to Gatekeeper
 //
 // # Details
 //
 // This is for the case when you have some IoT like device that needs to connect to a Gatekeeper
-// service. This functionn request from the server, some a randomly generated message that should
-// passed to FinishExternalDevice login for signing by service's certificate, and returned with the
-// provided request ID.
-func (gc *GatekeeperClient) BeginExternalDeviceLogin() (dar DeviceAuthRequest, e error) {
-	req, _ := http.NewRequest("GET", "https://"+gc.config.GatekeeperAPIAddr+"/device_auth/begin", http.NoBody)
+// service. This functionn requests from the server, some randomly generated message that will
+// be signed by the service's certificate, and returned with the provided request ID.
+//
+// # Parameters
+//
+//   - serviceURL should be a combo of the service's name and the service domain it belongs to:
+//   - Example: gktest.test.alargerobot.dev
+func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) error {
+	var dar DeviceAuthRequest
+	req, _ := http.NewRequest("GET", "https://"+gc.config.GatekeeperAPIAddress+"/device_auth/begin", http.NoBody)
 	req.Header.Add("Content-Type", "application/x-gatekeeper-device-auth")
 	if resp, err := http.DefaultClient.Do(req); err == nil {
 		if resp.StatusCode == 200 {
 			if reqDetails, e := io.ReadAll(resp.Body); e == nil {
 				if e := json.Unmarshal(reqDetails, &dar); e != nil {
-					return DeviceAuthRequest{}, e
+					privKeyBytes, _ := os.ReadFile(filepath.Base(os.Args[0]) + ".key")
+					if privKey, e := pem.Decode(privKeyBytes); e == nil {
+						privateKey, err := x509.ParsePKCS8PrivateKey(privKey.Bytes)
+						if err != nil {
+							return fmt.Errorf("failed to parse private key type: %s", err)
+						}
+
+						hash := sha256.Sum256([]byte(dar.Message))
+						if sig, err := ecdsa.SignASN1(rand.Reader, privateKey.(*ecdsa.PrivateKey), hash[:]); err == nil {
+							dacr, _ := json.Marshal(DeviceAuthClientResponse{
+								Message:   dar.Message,
+								RequestID: dar.RequestID,
+								Signature: base64.StdEncoding.EncodeToString(sig),
+							})
+							_, err := http.DefaultClient.Post("https://"+gc.config.GatekeeperAPIAddress+"/device_auth/finish", "application/x-gatekeeper-device-auth", bytes.NewReader(dacr))
+							if err != nil {
+								return err
+							}
+						} else {
+							return err
+						}
+					}
 				}
-				return dar, nil
+				return nil
 			} else {
-				return DeviceAuthRequest{}, e
+				return e
 			}
 		} else {
-			return DeviceAuthRequest{}, errors.New("not allowed")
+			return errors.New("not allowed")
 		}
 	} else {
-		return DeviceAuthRequest{}, err
+		return err
 	}
 }
-
-// # Description
-//
-// FinishExternalDeviceLogin finishes the authentication process for an external device.
-//
-// # Details
-//
-// Takes the “message“ provided in the parameter named “dar“, signs it with the service's
-// certificate and returns to Gatkeeper for validation.
-func (gc *GatekeeperClient) FinishExternalDeviceLogin(dar DeviceAuthRequest) error {
-	privKeyBytes, _ := os.ReadFile(filepath.Base(os.Args[0]) + ".key")
-	if privKey, e := pem.Decode(privKeyBytes); e == nil {
-		privateKey, err := x509.ParsePKCS8PrivateKey(privKey.Bytes)
-		if err != nil {
-			return fmt.Errorf("failed to parse private key type: %s", err)
-		}
-
-		hash := sha256.Sum256([]byte(dar.Message))
-		if sig, err := ecdsa.SignASN1(rand.Reader, privateKey.(*ecdsa.PrivateKey), hash[:]); err == nil {
-			dacr, _ := json.Marshal(DeviceAuthClientResponse{
-				Message:   dar.Message,
-				RequestID: dar.RequestID,
-				Signature: base64.StdEncoding.EncodeToString(sig),
-			})
-
-			_, err := http.DefaultClient.Post("https://"+gc.config.GatekeeperAPIAddr+"/device_auth/finish", "application/x-gatekeeper-device-auth", bytes.NewReader(dacr))
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	} else {
-		return fmt.Errorf("failed to decode private key type: %s", e)
-	}
-}
-
 func (gc *GatekeeperClient) startHealthCheckServer() error {
 	err := http.ListenAndServe(":"+strconv.Itoa(gc.config.HealthCheckPort), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/ping" {
