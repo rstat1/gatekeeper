@@ -43,9 +43,9 @@ type DeviceAuthRequest struct {
 }
 
 type DeviceAuthClientResponse struct {
-	Message   string
-	Signature string
-	RequestID string
+	Message   string `json:"message"`
+	Signature string `json:"signature"`
+	RequestID string `json:"requestID"`
 }
 
 // # Description
@@ -166,7 +166,6 @@ func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) (string, er
 						if err != nil {
 							return "", fmt.Errorf("failed to parse private key type: %s", err)
 						}
-
 						hash := sha256.Sum256([]byte(dar.Message))
 						if sig, err := ecdsa.SignASN1(rand.Reader, privateKey, hash[:]); err == nil {
 							dacr, _ := json.Marshal(DeviceAuthClientResponse{
@@ -191,7 +190,7 @@ func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) (string, er
 						return "", errors.New("failed to find pem block")
 					}
 				} else {
-					panic(e)
+					return "", e
 				}
 			} else {
 				return "", e
