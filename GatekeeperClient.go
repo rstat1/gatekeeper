@@ -169,7 +169,7 @@ func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) (string, er
 						hash := sha256.Sum256([]byte(dar.Message))
 						if sig, err := ecdsa.SignASN1(rand.Reader, privateKey, hash[:]); err == nil {
 							dacr, _ := json.Marshal(DeviceAuthClientResponse{
-								Message:   dar.Message,
+								Message:   base64.StdEncoding.EncodeToString([]byte(dar.Message)),
 								RequestID: dar.RequestID,
 								Signature: base64.StdEncoding.EncodeToString(sig),
 							})
