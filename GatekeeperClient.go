@@ -154,7 +154,7 @@ func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string,
 //   - Example: gktest.test.alargerobot.dev
 func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) error {
 	var dar DeviceAuthRequest
-	req, _ := http.NewRequest("GET", "https://"+gc.config.GatekeeperAPIAddress+"/device_auth/begin", http.NoBody)
+	req, _ := http.NewRequest("GET", "https://"+serviceURL+"/device_auth/begin", http.NoBody)
 	req.Header.Add("Content-Type", "application/x-gatekeeper-device-auth")
 	if resp, err := http.DefaultClient.Do(req); err == nil {
 		if resp.StatusCode == 200 {
