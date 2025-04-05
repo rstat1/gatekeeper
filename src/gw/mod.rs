@@ -28,12 +28,13 @@ pub struct ReverseProxy {
 	svcNames: Vec<String>,
 	grpcCert: Certificate,
 	staticFileServerAddr: String,
+	deviceAuthServerAddr: String,
 	epMgr: Arc<EndpointManagerImpl>,
 	aliasToSvc: HashMap<String, String>,
 }
 
 impl ReverseProxy {
-	pub fn new(epMgr: Arc<EndpointManagerImpl>, svcs: Vec<GatekeeperService>, staticFileServerAddr: &String, gkCert: &Certificate) -> Self {
+	pub fn new(epMgr: Arc<EndpointManagerImpl>, svcs: Vec<GatekeeperService>, staticFileServerAddr: &String, gkCert: &Certificate, deviceAuthServerAddr: &String) -> Self {
 		let mut svcNames: Vec<String> = Vec::default();
 		let mut aliasToSvc: HashMap<String, String> = HashMap::default();
 
@@ -46,7 +47,7 @@ impl ReverseProxy {
 			}
 		}
 
-		ReverseProxy { epMgr, svcNames, aliasToSvc, staticFileServerAddr: staticFileServerAddr.clone(), grpcCert: gkCert.clone() }
+		ReverseProxy { epMgr, svcNames, aliasToSvc, staticFileServerAddr: staticFileServerAddr.clone(), grpcCert: gkCert.clone(), deviceAuthServerAddr: deviceAuthServerAddr.clone() }
 	}
 
 	pub(super) fn is_valid_service(&self, svc: &String) -> (bool, String) {

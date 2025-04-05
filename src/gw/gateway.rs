@@ -36,6 +36,7 @@ pub struct RequestContext {
 	service: String,
 	grpcService: String,
 	isGRPCService: bool,
+	redirectDeviceAuthAttempt: bool,
 	redirectToStaticServer: bool,
 	currentPeer: Option<SocketAddr>,
 }
@@ -44,7 +45,15 @@ pub struct RequestContext {
 impl ProxyHttp for crate::gw::ReverseProxy {
 	type CTX = RequestContext;
 	fn new_ctx(&self) -> Self::CTX {
-		RequestContext { base: String::new(), service: String::new(), currentPeer: None, redirectToStaticServer: false, isGRPCService: false, grpcService: String::new() }
+		RequestContext {
+			base: String::new(),
+			service: String::new(),
+			currentPeer: None,
+			redirectToStaticServer: false,
+			isGRPCService: false,
+			grpcService: String::new(),
+			redirectDeviceAuthAttempt: false,
+		}
 	}
 
 	fn init_downstream_modules(&self, modules: &mut HttpModules) {
@@ -68,6 +77,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 		Self::CTX: Send + Sync,
 	{
 		let mut uri: Uri;
+		let contentTypeHeader = session.get_header("content-type");
 
 		if session.is_http2() {
 			uri = session.as_http2().unwrap().req_header().uri.clone();
@@ -75,11 +85,18 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 			uri = session.get_header("Host").unwrap().to_str().unwrap().parse().unwrap();
 		}
 
-		if let Some(isGRPC) = session.get_header("content-type") {
+		if let Some(isGRPC) = contentTypeHeader {
 			ctx.isGRPCService = isGRPC.to_str().unwrap() == "application/grpc";
 		}
 
-		if !uri.path().starts_with("/api") && !ctx.isGRPCService {
+		if let Some(isDevAuthSvc) = contentTypeHeader {
+			ctx.redirectDeviceAuthAttempt = isDevAuthSvc.to_str().unwrap() == "application/x-gatekeeper-device-auth";
+			if ctx.redirectDeviceAuthAttempt {
+				return Ok(false);
+			}
+		}
+
+		if !uri.path().starts_with("/api") && !ctx.isGRPCService && !ctx.redirectDeviceAuthAttempt {
 			ctx.redirectToStaticServer = true;
 			return Ok(false);
 		}
@@ -121,13 +138,21 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 	}
 
 	async fn upstream_peer(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<Box<HttpPeer>> {
+		let mut svcNameForLookup: String;
+
 		if ctx.redirectToStaticServer {
+			debug!("forward to StaticFile service");
 			let peer = Box::new(HttpPeer::new(self.staticFileServerAddr.clone(), false, "".to_string()));
 			return Ok(peer);
 		}
 
-		let mut svcNameForLookup: String;
-		debug! {"serving request to service: {}", &ctx.service};
+		if ctx.redirectDeviceAuthAttempt {
+			debug!("forward to EDA service");
+			let peer = Box::new(HttpPeer::new(self.deviceAuthServerAddr.clone(), false, "".to_string()));
+			return Ok(peer);
+		}
+
+		debug!("serving request to service: {}", &ctx.service);
 
 		if ctx.isGRPCService {
 			svcNameForLookup = ctx.grpcService.clone();
@@ -154,8 +179,6 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 				peerOpts.alpn = ALPN::H2;
 				peerOpts.ca = Some(Arc::new(Box::new([caInt.clone(), caRoot.clone()])));
 				peer.options = peerOpts;
-
-				debug!("{:?}", peer);
 
 				let peerBox = Box::new(peer);
 				Ok(peerBox)

@@ -7,11 +7,15 @@
 
 use base64::{alphabet, engine, engine::general_purpose, Engine};
 use http_body_util::{BodyExt, Full};
-use instant_acme::ChallengeType;
-use instant_acme::{Account, AccountCredentials, BytesResponse, ExternalAccountKey, HttpClient, Identifier, NewAccount, NewOrder};
-use std::path::Path;
-use std::{error::Error, future::Future, pin::Pin, sync::Arc};
+use instant_acme::{Account, AccountCredentials, BytesResponse, ChallengeType, ExternalAccountKey, HttpClient, Identifier, NewAccount, NewOrder};
+use p384::{
+	ecdsa::{signature::Verifier, *},
+	pkcs8::DecodePrivateKey,
+	SecretKey,
+};
+use std::{error::Error, future::Future, path::Path, pin::Pin, sync::Arc};
 use tracing::{debug, error, info};
+use x509_parser::pem::parse_x509_pem;
 
 use crate::vault::{Certificate, VaultClient};
 
@@ -109,6 +113,44 @@ impl CertManagerSvc {
 			}
 		} else {
 			Err(format!("cert for service {} does not exist", serviceName))
+		}
+	}
+	pub async fn SignWithGatekeeperCert(&self, toSign: String) -> Result<String, String> {
+		match self.GetExistingServiceCert("gatekeeper".to_string()).await {
+			Ok(c) => {
+				let key = SecretKey::from_sec1_pem(&c.private_key.as_str()).unwrap();
+				let sk = SigningKey::from(key);
+
+				match sk.sign_recoverable(toSign.as_bytes()) {
+					Ok(sig) => Ok(engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).encode(sig.0.to_der().as_bytes())),
+					Err(e) => Err(e.to_string()),
+				}
+			}
+			Err(e) => Err(e),
+		}
+	}
+	pub async fn VerifyMessage(&self, serviceName: String, message: String, msgSig: String) -> Result<bool, String> {
+		match self.GetExistingServiceCert(serviceName).await {
+			Ok(c) => match parse_x509_pem(c.certificate.as_bytes()) {
+				Ok(cert) => match cert.1.parse_x509() {
+					Ok(parsed) => {
+						let sigDecoded = engine::GeneralPurpose::new(&alphabet::STANDARD, general_purpose::PAD).decode(msgSig.clone()).unwrap();
+						let pk = &parsed.tbs_certificate.public_key().subject_public_key;
+						let sig = Signature::from_der(&sigDecoded).unwrap();
+
+						match VerifyingKey::from_sec1_bytes(&pk.data) {
+							Ok(r) => match r.verify(&message.as_bytes(), &sig) {
+								Ok(_) => Ok(true),
+								Err(e) => Err(format!("Verify failed: {:?}", e)),
+							},
+							Err(e) => Err(format!("error processing public key: {}", e.to_string())),
+						}
+					}
+					Err(e) => Err(format!("X509CertParsing error: {}", e.to_string())),
+				},
+				Err(e) => Err(format!("Pem error: {}", e.to_string())),
+			},
+			Err(e) => Err(format!("GetExistingServiceCert error: {e}")),
 		}
 	}
 	pub async fn GenerateACMECert(&self, serviceName: &String) -> Result<bool, String> {

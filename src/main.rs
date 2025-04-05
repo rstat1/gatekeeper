@@ -9,6 +9,7 @@
 //messages about formatting that shouldn't be complier warnings.
 #![allow(nonstandard_style)]
 
+use gatekeeper::services::device_auth::DeviceAuthService;
 use gatekeeper::services::static_file_server::StaticFileServer;
 use pingora::listeners::tls::TlsSettings;
 use pingora::prelude::*;
@@ -34,9 +35,9 @@ fn main() {
 	let dbCreds: DBCredentials;
 	let apiImpl: APIServiceImpl;
 	let vault: Arc<VaultClient>;
-	let acme: Arc<CertManagerSvc>;
+	let cmSvc: Arc<CertManagerSvc>;
 	let conf: SystemConfiguration;
-	let apiServiceCert: Certificate;
+	let apiServiceCert: Arc<Certificate>;
 	let srImpl: Arc<EndpointManagerImpl>;
 	let svcsList: Vec<GatekeeperService>;
 	let mut server = Server::new(None).unwrap();
@@ -72,7 +73,17 @@ fn main() {
 		Err(e) => panic!("{:?}", e),
 	}
 
-	let async_db_init = async { DataStore::new(&dbCreds.username, &dbCreds.password, &conf.mongoEndpoint, conf.collectionName, vault.clone()).await };
+	let async_db_init = async {
+		DataStore::new(
+			&dbCreds.username,
+			&dbCreds.password,
+			&conf.mongoEndpoint,
+			conf.collectionName,
+			vault.clone(),
+			conf.redisServerAddress.clone(),
+		)
+		.await
+	};
 	match rt.block_on(async_db_init) {
 		Ok(ds) => {
 			debug!("mongodb client init");
@@ -89,7 +100,7 @@ fn main() {
 
 	let async_ac_init = async { CertManagerSvc::new(vault.clone()).await };
 	match rt.block_on(async_ac_init) {
-		Ok(ac) => acme = Arc::new(ac),
+		Ok(ac) => cmSvc = Arc::new(ac),
 		Err(e) => {
 			panic!("cert_svc init failed: {}", e)
 		}
@@ -101,7 +112,7 @@ fn main() {
 		Err(e) => panic!("{:?}", e),
 	}
 
-	apiImpl = APIServiceImpl::new(db.clone(), acme.clone());
+	apiImpl = APIServiceImpl::new(db.clone(), cmSvc.clone());
 
 	let dynamic_cert = DynamicCert::new();
 	let mut tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
@@ -111,28 +122,37 @@ fn main() {
 	let certPath = Path::new("certs/svcs/gatekeeper.cert");
 
 	if !certPath.exists() {
-		let async_get_server_cert = async { acme.GenerateServiceCert(&"gatekeeper".to_string()).await };
+		let async_get_server_cert = async { cmSvc.GenerateServiceCert(&"gatekeeper".to_string()).await };
 		match rt.block_on(async_get_server_cert) {
-			Ok(cert) => apiServiceCert = cert,
+			Ok(cert) => apiServiceCert = Arc::new(cert),
 			Err(e) => panic!("{:?}", e),
 		}
 	} else {
-		let async_get_server_cert = async { acme.GetExistingServiceCert("gatekeeper".to_string()).await };
+		let async_get_server_cert = async { cmSvc.GetExistingServiceCert("gatekeeper".to_string()).await };
 		match rt.block_on(async_get_server_cert) {
-			Ok(cert) => apiServiceCert = cert,
+			Ok(cert) => apiServiceCert = Arc::new(cert),
 			Err(e) => panic!("{:?}", e),
 		}
 	}
 
-	let mut staticServer: ListeningService<StaticFileServer> = StaticFileServer::new().Service();
+	let mut staticServer: ListeningService<StaticFileServer> = StaticFileServer::Service();
 	staticServer.add_tcp(conf.staticFileServerAddr.clone().unwrap_or("0.0.0.0:10000".to_string()).as_str());
+
+	let mut devAuthServer: ListeningService<DeviceAuthService> = DeviceAuthService::Service(db.clone(), cmSvc.clone(), apiServiceCert.expiration);
+	devAuthServer.add_tcp(conf.devAuthServerAddr.clone().unwrap_or("0.0.0.0:10001".to_string()).as_str());
 
 	let mut prometheus_service_http = ListeningService::prometheus_http_service();
 	prometheus_service_http.add_tcp("127.0.0.1:6150");
 
 	let mut proxy = pingora_proxy::http_proxy_service(
 		&server.configuration,
-		ReverseProxy::new(srImpl.clone(), svcsList, &conf.staticFileServerAddr.unwrap_or("0.0.0.0:10000".to_string()), &apiServiceCert),
+		ReverseProxy::new(
+			srImpl.clone(),
+			svcsList,
+			&conf.staticFileServerAddr.unwrap_or("0.0.0.0:10000".to_string()),
+			&apiServiceCert,
+			&conf.devAuthServerAddr.unwrap_or("0.0.0.0:10001".to_string()),
+		),
 	);
 	proxy.add_tls_with_settings(&conf.tlsListenerAddr, None, tls_settings);
 
@@ -140,13 +160,14 @@ fn main() {
 		let grpcRT = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 		let grpcTask = async {
 			let addr = "0.0.0.0:2000".parse().unwrap();
-			GRPCServer::InitAndServe(addr, srImpl.clone(), Arc::new(apiImpl), apiServiceCert).await;
+			GRPCServer::InitAndServe(addr, srImpl.clone(), Arc::new(apiImpl), apiServiceCert.clone()).await;
 		};
 		grpcRT.block_on(grpcTask);
 	});
 
 	server.add_service(proxy);
 	server.add_service(staticServer);
+	server.add_service(devAuthServer);
 	server.add_service(prometheus_service_http);
 	server.run_forever();
 }

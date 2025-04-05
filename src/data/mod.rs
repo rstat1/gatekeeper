@@ -11,9 +11,12 @@ use mongodb::{
 	error::ErrorKind,
 	Client, ClientSession, Collection,
 };
+use redis::Commands;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{future::Future, sync::Arc};
 use tokio::sync::RwLock;
+use tracing::error;
+use tracing_subscriber::fmt::format;
 
 use crate::vault::VaultClient;
 
@@ -22,6 +25,7 @@ pub struct DataStore {
 	serverEP: String,
 	collectionName: String,
 	vault: Arc<VaultClient>,
+	pub redis: redis::Client,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -41,6 +45,7 @@ pub struct SystemConfiguration {
 	#[serde(rename = "pingIntervalSecs")]
 	pub healthCheckInterval: Option<u64>,
 	pub staticFileServerAddr: Option<String>,
+	pub devAuthServerAddr: Option<String>,
 }
 
 /// A ServiceDomain is used to assign services to a base domain.
@@ -70,6 +75,7 @@ pub struct GatekeeperService {
 	pub isFrostSvc: bool,
 	pub routeAliases: Option<Vec<Alias>>,
 	pub securityPolices: Option<Vec<String>>,
+	pub allowEDL: Option<bool>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -100,15 +106,29 @@ impl PartialEq for GatekeeperService {
 }
 
 impl DataStore {
-	pub async fn new(username: &String, password: &String, epAddr: &String, collection: String, vault: Arc<VaultClient>) -> Result<Arc<Self>, mongodb::error::Error> {
+	pub async fn new(username: &String, password: &String, epAddr: &String, collection: String, vault: Arc<VaultClient>, redisAddr: String) -> Result<Arc<Self>, mongodb::error::Error> {
 		let mongoEP = format!(
 			"mongodb://{}:{}@{}/{}?directconnection=true&appName=gatekeeper&retryWrites=false",
 			username, password, epAddr, collection
 		);
 
+		let redisClient = match redis::Client::open(format!("redis://{}", redisAddr)) {
+			Ok(c) => c,
+			Err(e) => {
+				error!("error connecting to redis: {e}");
+				return Err(mongodb::error::Error::custom("Failed to connect to Redis"));
+			}
+		};
+
 		let c = Client::with_uri_str(mongoEP.clone()).await;
 		match c {
-			Ok(c) => Ok(Arc::new(DataStore { client: RwLock::new(c), collectionName: collection, vault, serverEP: epAddr.clone() })),
+			Ok(c) => Ok(Arc::new(DataStore {
+				client: RwLock::new(c),
+				collectionName: collection,
+				vault,
+				serverEP: epAddr.clone(),
+				redis: redisClient,
+			})),
 			Err(e) => Err(e),
 		}
 	}
@@ -262,6 +282,17 @@ impl DataStore {
 		})
 		.await
 	}
+	pub async fn GetServiceEDLSetting(&self, name: &String) -> Result<bool, mongodb::error::Error> {
+		self.retryableQuery(|| async {
+			let servicesColl: Collection<GatekeeperService> = self.client.read().await.database(&self.collectionName).collection("services");
+			match servicesColl.find_one(doc! {"name": name}).await {
+				Ok(Some(svc)) => return Ok(svc.allowEDL.unwrap_or(false)),
+				Ok(None) => return Ok(false),
+				Err(e) => return Err(e),
+			};
+		})
+		.await
+	}
 	pub async fn DeleteDomain(&self, id: &String) -> Result<bool, mongodb::error::Error> {
 		self.retryableQuery(|| async {
 			match self.GetDomainByID(id).await {
@@ -294,6 +325,42 @@ impl DataStore {
 			}
 		})
 		.await
+	}
+	pub fn ReadStringFromRedis(&self, key: String) -> Result<String, String> {
+		match self.redis.get_connection() {
+			Ok(mut conn) => {
+				let result: redis::RedisResult<String> = conn.get(key);
+				match result {
+					Ok(v) => Ok(v),
+					Err(e) => Err(format!("ReadStringFromRedis: {e}")),
+				}
+			}
+			Err(e) => Err(e.to_string()),
+		}
+	}
+	pub fn WriteStringToRedis(&self, key: &String, value: &String) -> Result<bool, String> {
+		match self.redis.get_connection() {
+			Ok(mut conn) => {
+				let result: redis::RedisResult<()> = conn.set(key, value);
+				match result {
+					Ok(_) => Ok(true),
+					Err(e) => Err(format!("WriteStringToRedis: {e}")),
+				}
+			}
+			Err(e) => Err(e.to_string()),
+		}
+	}
+	pub fn WriteStringToRedisWithTTL(&self, key: &String, value: &String, ttl: u64) -> Result<bool, String> {
+		match self.redis.get_connection() {
+			Ok(mut conn) => {
+				let result: redis::RedisResult<()> = conn.set_ex(key, value, ttl);
+				match result {
+					Ok(_) => Ok(true),
+					Err(e) => Err(format!("WriteStringToRedisWithTTL: {e}")),
+				}
+			}
+			Err(e) => Err(e.to_string()),
+		}
 	}
 	async fn addServiceToDomain(&self, serviceName: &String, domainName: &String, session: &mut ClientSession) -> Result<bool, mongodb::error::Error> {
 		//TODO: use retryable query.

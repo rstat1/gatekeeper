@@ -32,6 +32,7 @@ impl APIServiceImpl {
 			securityPolices: None,
 			routeAliases: None,
 			isFrostSvc: svc.is_frost_service,
+			allowEDL: Some(false),
 		};
 		let svcCert: Certificate;
 

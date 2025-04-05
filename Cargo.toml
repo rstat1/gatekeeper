@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = [ "rustls" ]
+default = []
 rustls = [ "reqwest/rustls-tls", "rustify/rustls-tls" ]
 
 [dependencies]
@@ -29,7 +29,7 @@ tonic-reflection = "0.12.3"
 redis = "0.29.0"
 uuid = {version = "1.15.1", features = ["v7"]}
 http = "1.2.0"
-rustify = {version = "0.6.1", default-features = false }
+rustify = { version = "0.6.1", default-features = false, features = ["reqwest", "rustls-tls"] }
 reqwest = { version = "0.12.2", default-features = false }
 rustify_derive = "0.5.4"
 derive_builder = "0.20.2"
@@ -39,6 +39,10 @@ http-body-util = "0.1.2"
 http-body = "1.0.1"
 base64 = "0.22.1"
 rcgen = "0.13.2"
+rand = { version = "0.9.0", default-features = false, features = ["std", "std_rng"] }
+x509-parser = "0.17.0"
+p384 = "0.13.1"
+sha2 = "0.10.8"
 
 [build-dependencies]
 tonic-build = "0.12.3"

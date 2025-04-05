@@ -20,6 +20,7 @@ message Service {
     bool isFrostService = 3;
     repeated string securityPolicies = 5;
     string id = 6;
+    bool allowsExternalDeviceLogin = 7;
 }    
 message ServiceCredentials {
     string ca_cert = 1;

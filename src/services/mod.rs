@@ -21,6 +21,7 @@ macro_rules! grpc_fd_set {
 
 pub mod api;
 pub mod cert_svc;
+pub mod device_auth;
 pub mod endpoint_manager;
 pub mod grpc;
 pub mod static_file_server;

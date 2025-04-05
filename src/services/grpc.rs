@@ -26,14 +26,14 @@ pub struct GRPCServer {
 }
 
 impl GRPCServer {
-	pub async fn InitAndServe(addr: SocketAddr, sr: Arc<EndpointManagerImpl>, api: Arc<APIServiceImpl>, serverCert: VaultCertificate) {
+	pub async fn InitAndServe(addr: SocketAddr, sr: Arc<EndpointManagerImpl>, api: Arc<APIServiceImpl>, serverCert: Arc<VaultCertificate>) {
 		let srv = GRPCServer { svcRegistryImpl: Arc::clone(&sr), apiSvcImpl: Arc::clone(&api) };
 		let svcReg = EndpointManagerServer::new(srv.clone());
 		let api = ApiServiceServer::new(srv.clone());
 		let reflectSvc = tonic_reflection::server::Builder::configure().register_encoded_file_descriptor_set(FD_SET).build_v1().unwrap();
 
-		let serverID = Identity::from_pem(serverCert.certificate, serverCert.private_key);
-		let clientCACert = serverCert.issuing_ca;
+		let serverID = Identity::from_pem(serverCert.certificate.clone(), serverCert.private_key.clone());
+		let clientCACert = serverCert.issuing_ca.clone();
 		let clientCACert = Certificate::from_pem(clientCACert);
 
 		let tls = ServerTlsConfig::new().identity(serverID).client_ca_root(clientCACert);
@@ -132,6 +132,7 @@ impl ApiService for GRPCServer {
 				is_frost_service: svc.isFrostSvc,
 				name: svc.name,
 				internal: svc.internal,
+				allows_external_device_login: false,
 				security_policies: svc.securityPolices.unwrap_or(Vec::default()),
 			})),
 			Ok(None) => Err(Status::new(tonic::Code::NotFound, "servicw with the provided ID doesn't not exist")),
@@ -145,6 +146,7 @@ impl ApiService for GRPCServer {
 				is_frost_service: svc.isFrostSvc,
 				name: svc.name,
 				internal: svc.internal,
+				allows_external_device_login: false,
 				security_policies: svc.securityPolices.unwrap_or(Vec::default()),
 			})),
 			Ok(None) => Err(Status::new(tonic::Code::NotFound, "servicw with the provided ID doesn't not exist")),
