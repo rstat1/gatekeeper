@@ -86,7 +86,11 @@ impl CertManagerSvc {
 		let certResult = self.vault.GenerateServiceCert("gatekeeper", &serviceName).await;
 		match certResult {
 			Ok(cert) => {
-				let certJSON = serde_json::to_string(&cert).unwrap();
+				let mut certToSave = cert.clone();
+				if serviceName != &"gatekeeper".to_string() {
+					certToSave.private_key = "".to_string();
+				}
+				let certJSON = serde_json::to_string(&certToSave).unwrap();
 				let er = self.vault.Encrypt("platform", certJSON.as_str()).await?;
 				match std::fs::write(format!("certs/svcs/{}.cert", serviceName), er.ciphertext) {
 					Ok(_) => Ok(cert),

@@ -83,6 +83,8 @@ impl pingora::listeners::TlsAccept for DynamicCert {
 
 			let certPath = Path::new(certPathStr.as_str());
 			let certKey = Path::new(certKeyStr.as_str());
+			let caCertPath = Path::new("certs/e6.crt");
+
 			if certPath.exists() && certKey.exists() {
 				let cert_bytes = std::fs::read(certPath).unwrap();
 				let cert = X509::from_pem(&cert_bytes).unwrap();
@@ -90,8 +92,15 @@ impl pingora::listeners::TlsAccept for DynamicCert {
 				let key_bytes = std::fs::read(certKey).unwrap();
 				let key = PKey::private_key_from_pem(&key_bytes).unwrap();
 
+				let ca_bytes = std::fs::read(caCertPath).unwrap();
+				let caCert = X509::from_pem(&ca_bytes).unwrap();
+
 				ext::ssl_use_certificate(ssl, &cert).unwrap();
 				ext::ssl_use_private_key(ssl, &key).unwrap();
+
+				if let Err(e) = ext::ssl_add_chain_cert(ssl, &caCert) {
+					error!("ssl_add_chain_cert returned: {}", e);
+				}
 			}
 		}
 	}

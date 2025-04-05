@@ -20,7 +20,7 @@ impl StaticFileServer {
 	pub fn new() -> Self {
 		return StaticFileServer {};
 	}
-	pub fn Service(&self) -> Service<StaticFileServer> {
+	pub fn Service() -> Service<StaticFileServer> {
 		Service::new("Static File Server".to_string(), StaticFileServer)
 	}
 	fn isFilePath(&self, path: String) -> (bool, &str) {
