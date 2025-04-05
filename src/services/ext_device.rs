@@ -26,7 +26,7 @@ use crate::data::DataStore;
 
 use super::cert_svc::CertManagerSvc;
 
-pub struct DeviceAuthService {
+pub struct ExternalDeviceManager {
 	db: Arc<DataStore>,
 	cm: Arc<CertManagerSvc>,
 	gkCertExp: Option<u64>,
@@ -59,9 +59,9 @@ struct DeviceAuthTokenPayload {
 	pub exp: u64,
 }
 
-impl DeviceAuthService {
-	pub fn Service(db: Arc<DataStore>, cm: Arc<CertManagerSvc>, gkCertExp: Option<u64>) -> Service<DeviceAuthService> {
-		Service::new("Gatekeeper EDA".to_string(), DeviceAuthService { db, cm, gkCertExp })
+impl ExternalDeviceManager {
+	pub fn Service(db: Arc<DataStore>, cm: Arc<CertManagerSvc>, gkCertExp: Option<u64>) -> Service<ExternalDeviceManager> {
+		Service::new("Gatekeeper EDA".to_string(), ExternalDeviceManager { db, cm, gkCertExp })
 	}
 	fn GenerateRespInfo(&self) -> (String, String) {
 		let requestID = Uuid::now_v7().to_string();
@@ -118,7 +118,7 @@ impl DeviceAuthService {
 }
 
 #[async_trait]
-impl ServeHttp for DeviceAuthService {
+impl ServeHttp for ExternalDeviceManager {
 	async fn response(&self, http_session: &mut ServerSession) -> Response<Vec<u8>> {
 		let uri: Uri;
 		let mut path: String;

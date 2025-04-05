@@ -9,7 +9,7 @@
 //messages about formatting that shouldn't be complier warnings.
 #![allow(nonstandard_style)]
 
-use gatekeeper::services::device_auth::DeviceAuthService;
+use gatekeeper::services::ext_device::ExternalDeviceManager;
 use gatekeeper::services::static_file_server::StaticFileServer;
 use pingora::listeners::tls::TlsSettings;
 use pingora::prelude::*;
@@ -138,7 +138,7 @@ fn main() {
 	let mut staticServer: ListeningService<StaticFileServer> = StaticFileServer::Service();
 	staticServer.add_tcp(conf.staticFileServerAddr.clone().unwrap_or("0.0.0.0:10000".to_string()).as_str());
 
-	let mut devAuthServer: ListeningService<DeviceAuthService> = DeviceAuthService::Service(db.clone(), cmSvc.clone(), apiServiceCert.expiration);
+	let mut devAuthServer: ListeningService<ExternalDeviceManager> = ExternalDeviceManager::Service(db.clone(), cmSvc.clone(), apiServiceCert.expiration);
 	devAuthServer.add_tcp(conf.devAuthServerAddr.clone().unwrap_or("0.0.0.0:10001".to_string()).as_str());
 
 	let mut prometheus_service_http = ListeningService::prometheus_http_service();
