@@ -1,20 +1,10 @@
 package sdk
 
 import (
-	"bytes"
 	"context"
-	"crypto/ecdsa"
-	"crypto/rand"
-	"crypto/sha512"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/base64"
-	"encoding/json"
-	"encoding/pem"
 	"errors"
-	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -30,11 +20,12 @@ type GatekeeperClient struct {
 	config          GatekeeperClientConfig
 	grpcClient      *grpc.ClientConn
 	endpointManager v1.EndpointManagerClient
+	epsServer       *EndpointServicesServer
 }
 
 type GatekeeperClientConfig struct {
-	HealthCheckPort      int
-	GatekeeperAPIAddress string
+	GatekeeperAPIAddress   string
+	GatekeeperServicesPort int
 }
 
 type DeviceAuthRequest struct {
@@ -51,7 +42,7 @@ type DeviceAuthClientResponse struct {
 // # Description
 //
 // NewGatekeeperClient initializes the gRPC client reponsible for commuicating with Gatekeeper and
-// starts the health check server.
+// starts listeners for various Gatekeeper services.
 //
 // # Usage note
 //
@@ -85,13 +76,15 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 		panic(e)
 	}
 
+	ess := NewEndpointServiceServer(false)
+	go ess.ListenAndServe(config.GatekeeperServicesPort)
+
 	gkc := &GatekeeperClient{
-		grpcClient:      grpcClient,
+		epsServer:       ess,
 		config:          config,
+		grpcClient:      grpcClient,
 		endpointManager: v1.NewEndpointManagerClient(grpcClient),
 	}
-
-	go gkc.startHealthCheckServer()
 
 	return gkc
 }
@@ -102,20 +95,7 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 //   - address should be formated: <ip-address:port>
 //   - tags are optional, specify []string{} if no tags are to applied
 func (gc *GatekeeperClient) RegisterGRPCServiceEndpoint(serviceName, grpcServiceName, address string, tags []string) error {
-	addrParts := strings.Split(address, ":")
-
-	if len(addrParts) != 2 {
-		return errors.New("invalid address specified. address format is: <ip-address:port>")
-	}
-
-	_, e := gc.endpointManager.RegisterServiceEndpoint(context.Background(), &v1.NewServiceEndpoint{
-		Tags:             tags,
-		Endpoint:         address,
-		ServiceName:      serviceName,
-		EndpointName:     grpcServiceName,
-		HealthCheckRoute: "http://" + addrParts[0] + ":" + strconv.Itoa(gc.config.HealthCheckPort) + "/ping",
-	})
-	return e
+	return gc.registerEPInternal(serviceName, grpcServiceName, address, tags)
 }
 
 // # Description
@@ -124,6 +104,10 @@ func (gc *GatekeeperClient) RegisterGRPCServiceEndpoint(serviceName, grpcService
 //   - address should be formated: <ip-address:port>
 //   - tags are optional, specify []string{} if no tags are to applied
 func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string, tags []string) error {
+	return gc.registerEPInternal(serviceName, serviceName, address, tags)
+}
+
+func (gc *GatekeeperClient) registerEPInternal(serviceName, endpointName, address string, tags []string) error {
 	addrParts := strings.Split(address, ":")
 
 	if len(addrParts) != 2 {
@@ -134,83 +118,8 @@ func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string,
 		Tags:             tags,
 		Endpoint:         address,
 		ServiceName:      serviceName,
-		EndpointName:     serviceName,
-		HealthCheckRoute: "http://" + addrParts[0] + ":" + strconv.Itoa(gc.config.HealthCheckPort) + "/ping",
+		EndpointName:     endpointName,
+		HealthCheckRoute: "https://" + addrParts[0] + ":" + strconv.Itoa(gc.config.GatekeeperServicesPort) + "/ping",
 	})
 	return e
-}
-
-// DoExternalDeviceLogin authenticates an external device to Gatekeeper
-//
-// # Details
-//
-// This is for the case when you have some IoT like device that needs to connect to a Gatekeeper
-// service. This functionn requests from the server, some randomly generated message that will
-// be signed by the service's certificate, and returned with the provided request ID.
-//
-// # Parameters
-//
-//   - serviceURL should be a combo of the service's name and the service domain it belongs to:
-//   - Example: gktest.test.alargerobot.dev
-func (gc *GatekeeperClient) DoExternalDeviceLogin(serviceURL string) (string, error) {
-	var dar DeviceAuthRequest
-	req, _ := http.NewRequest("GET", "https://"+serviceURL+"/device_auth/begin", http.NoBody)
-	req.Header.Add("Content-Type", "application/x-gatekeeper-device-auth")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	if resp.StatusCode == 200 {
-		reqDetails, e := io.ReadAll(resp.Body)
-		if e != nil {
-			return "", e
-		}
-		if e := json.Unmarshal(reqDetails, &dar); e != nil {
-			return "", e
-		}
-		privKeyBytes, _ := os.ReadFile(filepath.Base(os.Args[0]) + ".key")
-		if privKey, _ := pem.Decode(privKeyBytes); privKey != nil {
-			privateKey, err := x509.ParseECPrivateKey(privKey.Bytes)
-			if err != nil {
-				return "", fmt.Errorf("failed to parse private key type: %s", err)
-			}
-			hash := sha512.Sum384([]byte(dar.Message))
-			sig, err := ecdsa.SignASN1(rand.Reader, privateKey, hash[:])
-			if err != nil {
-				return "", err
-			}
-			dacr, _ := json.Marshal(DeviceAuthClientResponse{
-				Message:   base64.StdEncoding.EncodeToString([]byte(dar.Message)),
-				RequestID: dar.RequestID,
-				Signature: base64.StdEncoding.EncodeToString(sig),
-			})
-			r, err := http.DefaultClient.Post("https://"+serviceURL+"/device_auth/finish", "application/x-gatekeeper-device-auth", bytes.NewReader(dacr))
-			if err != nil {
-				return "", err
-			}
-			resp, _ := io.ReadAll(r.Body)
-			if r.StatusCode != 200 {
-				return "", errors.New(string(resp))
-			} else {
-				return string(resp), nil
-			}
-		} else {
-			return "", errors.New("failed to find pem block")
-		}
-	} else {
-		return "", errors.New("not allowed")
-	}
-}
-func (gc *GatekeeperClient) startHealthCheckServer() error {
-	err := http.ListenAndServe(":"+strconv.Itoa(gc.config.HealthCheckPort), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/ping" {
-			w.WriteHeader(404)
-		} else {
-			w.Write([]byte("pong"))
-		}
-	}))
-	if err != nil {
-		return err
-	}
-	return nil
 }
