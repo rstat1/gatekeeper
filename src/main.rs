@@ -9,22 +9,15 @@
 //messages about formatting that shouldn't be complier warnings.
 #![allow(nonstandard_style)]
 
-use gatekeeper::services::ext_device::ExternalDeviceManager;
-use gatekeeper::services::static_file_server::StaticFileServer;
-use pingora::listeners::tls::TlsSettings;
-use pingora::prelude::*;
-use pingora::services::listening::Service as ListeningService;
-use std::fs;
-use std::path::Path;
-use std::sync::Arc;
+use pingora::{listeners::tls::TlsSettings, prelude::*, services::listening::Service as ListeningService};
+use std::{fs, path::Path, sync::Arc};
 use tracing::{debug, info};
 
 use gatekeeper::data::*;
 use gatekeeper::gw::*;
-use gatekeeper::services::api::APIServiceImpl;
-use gatekeeper::services::cert_svc::CertManagerSvc;
-use gatekeeper::services::endpoint_manager::EndpointManagerImpl;
-use gatekeeper::services::grpc::GRPCServer;
+use gatekeeper::services::{
+	api::APIServiceImpl, cert_svc::CertManagerSvc, endpoint_manager::EndpointManagerImpl, ext_device::ExternalDeviceManager, grpc::GRPCServer, static_file_server::StaticFileServer,
+};
 use gatekeeper::vault::{Certificate, DBCredentials, VaultClient};
 
 fn main() {
@@ -106,12 +99,6 @@ fn main() {
 		}
 	}
 
-	let async_sri_init = async { EndpointManagerImpl::new(db.clone(), svcsList.clone(), conf.healthCheckInterval).await };
-	match rt.block_on(async_sri_init) {
-		Ok(sri) => srImpl = sri,
-		Err(e) => panic!("{:?}", e),
-	}
-
 	apiImpl = APIServiceImpl::new(db.clone(), cmSvc.clone());
 
 	let dynamic_cert = DynamicCert::new();
@@ -135,10 +122,16 @@ fn main() {
 		}
 	}
 
+	let async_sri_init = async { EndpointManagerImpl::new(db.clone(), svcsList.clone(), conf.healthCheckInterval, apiServiceCert.clone()).await };
+	match rt.block_on(async_sri_init) {
+		Ok(sri) => srImpl = sri,
+		Err(e) => panic!("{:?}", e),
+	}
+
 	let mut staticServer: ListeningService<StaticFileServer> = StaticFileServer::Service();
 	staticServer.add_tcp(conf.staticFileServerAddr.clone().unwrap_or("0.0.0.0:10000".to_string()).as_str());
 
-	let mut devAuthServer: ListeningService<ExternalDeviceManager> = ExternalDeviceManager::Service(db.clone(), cmSvc.clone(), apiServiceCert.expiration);
+	let mut devAuthServer: ListeningService<ExternalDeviceManager> = ExternalDeviceManager::Service(db.clone(), cmSvc.clone(), apiServiceCert.expiration, srImpl.clone());
 	devAuthServer.add_tcp(conf.devAuthServerAddr.clone().unwrap_or("0.0.0.0:10001".to_string()).as_str());
 
 	let mut prometheus_service_http = ListeningService::prometheus_http_service();
