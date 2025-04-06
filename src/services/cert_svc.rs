@@ -10,7 +10,6 @@ use http_body_util::{BodyExt, Full};
 use instant_acme::{Account, AccountCredentials, BytesResponse, ChallengeType, ExternalAccountKey, HttpClient, Identifier, NewAccount, NewOrder};
 use p384::{
 	ecdsa::{signature::Verifier, *},
-	pkcs8::DecodePrivateKey,
 	SecretKey,
 };
 use std::{error::Error, future::Future, path::Path, pin::Pin, sync::Arc};
@@ -134,6 +133,10 @@ impl CertManagerSvc {
 		}
 	}
 	pub async fn VerifyMessage(&self, serviceName: String, message: String, msgSig: String) -> Result<bool, String> {
+		if serviceName.is_empty() || message.is_empty() || msgSig.is_empty() {
+			return Err("one or more invalid arguments provided".to_string());
+		}
+
 		match self.GetExistingServiceCert(serviceName).await {
 			Ok(c) => match parse_x509_pem(c.certificate.as_bytes()) {
 				Ok(cert) => match cert.1.parse_x509() {

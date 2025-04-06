@@ -90,7 +90,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 		}
 
 		if let Some(isDevAuthSvc) = contentTypeHeader {
-			ctx.redirectDeviceAuthAttempt = isDevAuthSvc.to_str().unwrap() == "application/x-gatekeeper-device-auth";
+			ctx.redirectDeviceAuthAttempt = isDevAuthSvc.to_str().unwrap() == "application/x-gatekeeper-device-api";
 			if ctx.redirectDeviceAuthAttempt {
 				return Ok(false);
 			}
