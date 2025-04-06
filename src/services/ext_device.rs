@@ -24,12 +24,13 @@ use uuid::Uuid;
 
 use crate::data::DataStore;
 
-use super::cert_svc::CertManagerSvc;
+use super::{cert_svc::CertManagerSvc, endpoint_manager::EndpointManagerImpl};
 
 pub struct ExternalDeviceManager {
 	db: Arc<DataStore>,
 	cm: Arc<CertManagerSvc>,
 	gkCertExp: Option<u64>,
+	epm: Arc<EndpointManagerImpl>,
 }
 #[derive(Deserialize, Debug, Default, Serialize, Clone)]
 struct DeviceAuthRequest {
@@ -59,9 +60,15 @@ struct DeviceAuthTokenPayload {
 	pub exp: u64,
 }
 
+#[derive(Deserialize, Default)]
+struct DeviceRegistrationData {
+	deviceID: String,
+	servicesAddr: String,
+}
+
 impl ExternalDeviceManager {
-	pub fn Service(db: Arc<DataStore>, cm: Arc<CertManagerSvc>, gkCertExp: Option<u64>) -> Service<ExternalDeviceManager> {
-		Service::new("Gatekeeper EDA".to_string(), ExternalDeviceManager { db, cm, gkCertExp })
+	pub fn Service(db: Arc<DataStore>, cm: Arc<CertManagerSvc>, gkCertExp: Option<u64>, epm: Arc<EndpointManagerImpl>) -> Service<ExternalDeviceManager> {
+		Service::new("Gatekeeper EDA".to_string(), ExternalDeviceManager { db, cm, gkCertExp, epm })
 	}
 	fn GenerateRespInfo(&self) -> (String, String) {
 		let requestID = Uuid::now_v7().to_string();
@@ -80,14 +87,16 @@ impl ExternalDeviceManager {
 	}
 	async fn VerifyDeviceTokenRequest(&self, resp: DeviceAuthClientResponse) -> Result<bool, String> {
 		debug!("verifying request ID: {}", resp.requestID);
+
+		if resp.message.is_empty() || resp.signature.is_empty() || resp.requestID.is_empty() {
+			return Err("one or more invalid arguments in response".to_string());
+		}
+
 		match self.db.ReadStringFromRedis(resp.requestID) {
 			Ok(details) => {
-				let req: DeviceAuthRequestData = serde_json::from_slice(details.as_bytes()).unwrap();
+				let req: DeviceAuthRequestData = serde_json::from_slice(details.as_bytes()).unwrap_or_default();
 				match self.cm.VerifyMessage(req.service, req.message, resp.signature).await {
-					Ok(r) => {
-						debug!("verified!");
-						Ok(r)
-					}
+					Ok(r) => Ok(r),
 					Err(e) => Err(format!("VerifyMessage failed: {e}")),
 				}
 			}
@@ -115,13 +124,112 @@ impl ExternalDeviceManager {
 			Err(_) => todo!(),
 		}
 	}
+	async fn HandleDeviceAuth(&self, svc: &String, path: &String, http_session: &mut ServerSession) -> (StatusCode, Vec<u8>) {
+		let mut sc: StatusCode = StatusCode::OK;
+		let mut resp_body: Vec<u8> = Vec::default();
+		let mut urlPath = path.clone();
+
+		match urlPath.split_off(12).as_str() {
+			"/begin" => match self.db.GetServiceEDLSetting(&svc).await {
+				Ok(allowed) => {
+					if allowed {
+						let (message, requestID) = self.GenerateRespInfo();
+						debug!("request ID {requestID} is allowed to do a device login");
+						let resp = serde_json::to_string(&DeviceAuthRequest { message: message.clone(), requestID: requestID.clone() }).unwrap();
+						let reqData = serde_json::to_string(&DeviceAuthRequestData { service: svc.clone(), message: message.clone() }).unwrap();
+
+						match self.db.WriteStringToRedisWithTTL(&requestID, &reqData, 120) {
+							Ok(_) => resp_body = Vec::from(resp.as_bytes()),
+							Err(e) => {
+								sc = StatusCode::INTERNAL_SERVER_ERROR;
+								error!("caching device auth info failed: {e}")
+							}
+						};
+					} else {
+						sc = StatusCode::FORBIDDEN;
+					}
+				}
+				Err(e) => {
+					sc = StatusCode::INTERNAL_SERVER_ERROR;
+					error!("GetServiceEDLSetting error: {e}");
+				}
+			},
+			"/finish" => match http_session.read_request_body().await {
+				Ok(b) => {
+					if let Some(authRequest) = b {
+						let dacr = serde_json::from_slice::<DeviceAuthClientResponse>(&authRequest).unwrap_or_default();
+						match self.VerifyDeviceTokenRequest(dacr).await {
+							Ok(_) => match self.MakeDeviceToken(svc).await {
+								Ok(token) => {
+									resp_body = Vec::from(token.as_bytes());
+								}
+								Err(e) => {
+									sc = StatusCode::INTERNAL_SERVER_ERROR;
+									resp_body = Vec::from("error generating token");
+									error!("error generating token: {e}");
+								}
+							},
+							Err(e) => {
+								sc = StatusCode::INTERNAL_SERVER_ERROR;
+								resp_body = Vec::from("error verifying request");
+								error!("error verifying request: {e}");
+							}
+						}
+					}
+				}
+				Err(e) => {
+					sc = StatusCode::BAD_REQUEST;
+					resp_body = Vec::from(format!("an error occured reading request data: {e}").as_bytes());
+				}
+			},
+			"/renew" => {
+				sc = StatusCode::NOT_IMPLEMENTED;
+			}
+			_ => {
+				sc = StatusCode::NOT_FOUND;
+			}
+		}
+		(sc, resp_body)
+	}
+	async fn ActivateEPSForExtClient(&self, svc: &String, http_session: &mut ServerSession) -> (StatusCode, Vec<u8>) {
+		let sc: StatusCode = StatusCode::OK;
+		let resp_body: Vec<u8> = Vec::default();
+
+		match http_session.read_request_body().await {
+			Ok(b) => {
+				if let Some(regData) = b {
+					let drd = serde_json::from_slice::<DeviceRegistrationData>(&regData).unwrap_or_default();
+					match self.epm.AddClientDeviceToList(svc, drd.deviceID, drd.servicesAddr) {
+						Ok(_) => {}
+						Err(e) => {
+							return self.ErrorResponse(e, "error occured during device eps activation", StatusCode::INTERNAL_SERVER_ERROR);
+						}
+					}
+				} else {
+					return self.ErrorResponse("", "request contained no data", StatusCode::BAD_REQUEST);
+				}
+			}
+			Err(e) => {
+				return self.ErrorResponse(e, "an error occurred reading request data", StatusCode::BAD_REQUEST);
+			}
+		}
+
+		(sc, resp_body)
+	}
+	fn ErrorResponse<T>(&self, e: T, errorDescription: &str, sc: StatusCode) -> (StatusCode, Vec<u8>)
+	where
+		T: ToString,
+	{
+		error!("{errorDescription}: {}", e.to_string());
+		(sc, Vec::from(errorDescription))
+	}
 }
 
 #[async_trait]
 impl ServeHttp for ExternalDeviceManager {
 	async fn response(&self, http_session: &mut ServerSession) -> Response<Vec<u8>> {
 		let uri: Uri;
-		let mut path: String;
+		let path: String;
 		let mimeType = "application/json";
 		let mut sc: StatusCode = StatusCode::OK;
 		let mut resp_body: Vec<u8> = Vec::default();
@@ -138,82 +246,19 @@ impl ServeHttp for ExternalDeviceManager {
 		let urlParts: Vec<&str> = host.splitn(2, ".").collect();
 		let svc = &urlParts[0].to_string();
 
-		if path.starts_with("/device_auth") {
-			match path.split_off(12).as_str() {
-				"/begin" => match self.db.GetServiceEDLSetting(svc).await {
-					Ok(allowed) => {
-						if allowed {
-							let (message, requestID) = self.GenerateRespInfo();
-							debug!("request ID {requestID} is allowed to do a device login");
-							let resp = serde_json::to_string(&DeviceAuthRequest { message: message.clone(), requestID: requestID.clone() }).unwrap();
-							let reqData = serde_json::to_string(&DeviceAuthRequestData { service: urlParts[0].to_string(), message: message.clone() }).unwrap();
-
-							match self.db.WriteStringToRedisWithTTL(&requestID, &reqData, 120) {
-								Ok(_) => resp_body = Vec::from(resp.as_bytes()),
-								Err(e) => {
-									sc = StatusCode::INTERNAL_SERVER_ERROR;
-									error!("caching device auth info failed: {e}")
-								}
-							};
-						} else {
-							sc = StatusCode::FORBIDDEN;
-						}
-					}
-					Err(e) => {
-						sc = StatusCode::INTERNAL_SERVER_ERROR;
-						error!("GetServiceEDLSetting error: {e}");
-					}
-				},
-				"/finish" => match http_session.read_request_body().await {
-					Ok(b) => {
-						if let Some(authRequest) = b {
-							match serde_json::from_slice::<DeviceAuthClientResponse>(&authRequest) {
-								Ok(dacr) => match self.VerifyDeviceTokenRequest(dacr).await {
-									Ok(r) => {
-										if r {
-											match self.MakeDeviceToken(svc).await {
-												Ok(token) => {
-													resp_body = Vec::from(token.as_bytes());
-												}
-												Err(e) => {
-													sc = StatusCode::INTERNAL_SERVER_ERROR;
-													resp_body = Vec::from("error generating token");
-													error!("error generating token: {e}");
-												}
-											}
-										} else {
-											sc = StatusCode::BAD_REQUEST;
-											resp_body = Vec::from("Validation failed. This should be an error".as_bytes());
-										}
-									}
-									Err(e) => {
-										sc = StatusCode::INTERNAL_SERVER_ERROR;
-										resp_body = Vec::from("error verifying request");
-										error!("error verifying request: {e}");
-									}
-								},
-								Err(e) => {
-									sc = StatusCode::INTERNAL_SERVER_ERROR;
-									resp_body = Vec::from("error verifying request");
-									error!("error verifying request: {e}");
-								}
-							}
-						}
-					}
-					Err(e) => {
-						sc = StatusCode::BAD_REQUEST;
-						resp_body = Vec::from(format!("an error occured: {e}").as_bytes());
-					}
-				},
-				"/renew" => {
-					sc = StatusCode::NOT_IMPLEMENTED;
-				}
-				_ => {
-					sc = StatusCode::NOT_FOUND;
-				}
+		if path.starts_with("/device") {
+			let function = path.strip_prefix("/device").unwrap();
+			if function.starts_with("/auth") {
+				let resp = self.HandleDeviceAuth(svc, &path, http_session).await;
+				sc = resp.0;
+				resp_body = resp.1;
+			}
+			if function.starts_with("/activate_eps") {
+				let resp = self.ActivateEPSForExtClient(svc, http_session).await;
+				sc = resp.0;
+				resp_body = resp.1;
 			}
 		}
-
 		Response::builder()
 			.status(sc)
 			.header(http::header::CONTENT_TYPE, mimeType)
