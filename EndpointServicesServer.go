@@ -65,11 +65,7 @@ func (ess *EndpointServicesServer) ListenAndServe(port int) error {
 func (ess *EndpointServicesServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/ping":
-		if !ess.isEDC {
-			w.Write([]byte("pong"))
-		} else {
-			w.WriteHeader(http.StatusNotFound)
-		}
+		w.Write([]byte("pong"))
 	case "/sign_token":
 		if !ess.isEDC {
 			ess.signToken(w, r)
