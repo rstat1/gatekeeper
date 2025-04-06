@@ -62,10 +62,6 @@ func NewExternalDeviceClient(serviceURL string, endpointServicesAddr string) *Ex
 	port, _ := strconv.Atoi(addrParts[1])
 
 	go edc.epsServer.ListenAndServe(port)
-	if err := edc.registerExternalClient(); err != nil {
-		panic(err)
-	}
-
 	return edc
 }
 
@@ -76,7 +72,8 @@ func NewExternalDeviceClient(serviceURL string, endpointServicesAddr string) *Ex
 // service. This functionn requests from the server, some randomly generated message that will
 // be signed by the service's certificate, and returned with the provided request ID. If
 // verifcation is successful a signed token will be returned by the server that said device can use
-// for authtencation.
+// for authtencation. Registers the device's endpoint services server (created by NewExternalDevice 
+// client) if successful.
 //
 // # Parameters
 //   - serviceURL should be a combo of the service's name and the service domain it belongs to
@@ -122,6 +119,9 @@ func (edc *ExternalDeviceClient) Login() error {
 				return errors.New(string(resp))
 			} else {
 				edc.authToken = string(resp)
+				if err := edc.registerExternalClient(); err != nil {
+					return err
+				}
 				return nil
 			}
 		} else {
