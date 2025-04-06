@@ -27,7 +27,7 @@ type ExternalDeviceClient struct {
 	serviceURL string
 	authToken  string
 	epsAddr    string
-	epsServer  *EndpointServicesServer
+	epsServer  *endpointServicesServer
 }
 
 type deviceRegistration struct {
@@ -142,7 +142,7 @@ func (edc *ExternalDeviceClient) registerExternalClient() error {
 
 	req, _ := http.NewRequest("GET", "https://"+edc.serviceURL+"/device/activate_eps", bytes.NewReader(devReg))
 	req.Header.Add("Content-Type", DEVICE_API_CONTENT_TYPE)
-	req.Header.Add("Authorization", "Bearer " + edc.authToken)
+	req.Header.Add("Authorization", "Bearer "+edc.authToken)
 	resp, err := http.DefaultClient.Do(req)
 
 	if resp.StatusCode != 200 {

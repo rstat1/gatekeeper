@@ -11,17 +11,17 @@ import (
 	"strconv"
 )
 
-type EndpointServicesServer struct {
+type endpointServicesServer struct {
 	isEDC bool
 }
 
-func NewEndpointServiceServer(forClient bool) *EndpointServicesServer {
-	return &EndpointServicesServer{
+func NewEndpointServiceServer(forClient bool) *endpointServicesServer {
+	return &endpointServicesServer{
 		isEDC: forClient,
 	}
 }
 
-func (ess *EndpointServicesServer) ListenAndServe(port int) error {
+func (ess *endpointServicesServer) ListenAndServe(port int) error {
 	cert, err := tls.LoadX509KeyPair(filepath.Base(os.Args[0])+".crt", filepath.Base(os.Args[0])+".key")
 	if err != nil {
 		panic(err)
@@ -62,7 +62,7 @@ func (ess *EndpointServicesServer) ListenAndServe(port int) error {
 	}
 	return nil
 }
-func (ess *EndpointServicesServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (ess *endpointServicesServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/ping":
 		w.Write([]byte("pong"))
@@ -84,12 +84,12 @@ func (ess *EndpointServicesServer) ServeHTTP(w http.ResponseWriter, r *http.Requ
 		w.WriteHeader(http.StatusNotFound)
 	}
 }
-func (ess *EndpointServicesServer) verifyToken(w http.ResponseWriter, r *http.Request) {
+func (ess *endpointServicesServer) verifyToken(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
-func (ess *EndpointServicesServer) signToken(w http.ResponseWriter, r *http.Request) {
+func (ess *endpointServicesServer) signToken(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
-func (ess *EndpointServicesServer) renewCert(w http.ResponseWriter, r *http.Request) {
+func (ess *endpointServicesServer) renewCert(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }

@@ -20,7 +20,7 @@ type GatekeeperClient struct {
 	config          GatekeeperClientConfig
 	grpcClient      *grpc.ClientConn
 	endpointManager v1.EndpointManagerClient
-	epsServer       *EndpointServicesServer
+	epsServer       *endpointServicesServer
 }
 
 type GatekeeperClientConfig struct {
