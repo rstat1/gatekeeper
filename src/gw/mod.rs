@@ -22,7 +22,8 @@ use crate::data::{Alias, DataStore, GatekeeperService};
 use crate::services::endpoint_manager::EndpointManagerImpl;
 use crate::vault::Certificate;
 
-pub mod gateway;
+pub mod reverse_proxy;
+
 pub struct DynamicCert;
 pub struct ReverseProxy {
 	svcNames: Vec<String>,
