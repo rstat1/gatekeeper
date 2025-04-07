@@ -24,8 +24,8 @@ type GatekeeperClient struct {
 }
 
 type GatekeeperClientConfig struct {
-	GatekeeperAPIAddress   string
-	GatekeeperServicesPort int
+	GatekeeperAPIAddress string
+	EndpointServicesPort int
 }
 
 type DeviceAuthRequest struct {
@@ -77,7 +77,7 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 	}
 
 	ess := NewEndpointServiceServer(false, "")
-	go ess.ListenAndServe(config.GatekeeperServicesPort)
+	go ess.ListenAndServe(config.EndpointServicesPort)
 
 	gkc := &GatekeeperClient{
 		epsServer:       ess,
@@ -119,7 +119,7 @@ func (gc *GatekeeperClient) registerEPInternal(serviceName, endpointName, addres
 		Endpoint:         address,
 		ServiceName:      serviceName,
 		EndpointName:     endpointName,
-		HealthCheckRoute: "https://" + addrParts[0] + ":" + strconv.Itoa(gc.config.GatekeeperServicesPort) + "/ping",
+		HealthCheckRoute: "https://" + addrParts[0] + ":" + strconv.Itoa(gc.config.EndpointServicesPort) + "/ping",
 	})
 	return e
 }
