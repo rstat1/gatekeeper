@@ -15,7 +15,7 @@ use base64::{
 	Engine,
 };
 use chrono::{Days, Utc};
-use http::{Response, StatusCode, Uri};
+use http::{header::AUTHORIZATION, Response, StatusCode, Uri};
 use pingora::{apps::http_app::ServeHttp, protocols::http::ServerSession, services::listening::Service};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -51,11 +51,6 @@ struct DeviceAuthClientResponse {
 }
 #[derive(Serialize, Deserialize)]
 struct DeviceAuthToken {
-	pub payload: DeviceAuthTokenPayload,
-	pub signature: String,
-}
-#[derive(Serialize, Deserialize)]
-struct DeviceAuthTokenPayload {
 	pub sub: String,
 	pub exp: u64,
 }
@@ -95,7 +90,7 @@ impl ExternalDeviceManager {
 		match self.db.ReadStringFromRedis(resp.requestID) {
 			Ok(details) => {
 				let req: DeviceAuthRequestData = serde_json::from_slice(details.as_bytes()).unwrap_or_default();
-				match self.cm.VerifyMessage(req.service, req.message, resp.signature).await {
+				match self.cm.VerifyMessage(req.service, &req.message, &resp.signature).await {
 					Ok(r) => Ok(r),
 					Err(e) => Err(format!("VerifyMessage failed: {e}")),
 				}
@@ -105,7 +100,7 @@ impl ExternalDeviceManager {
 	}
 	async fn MakeDeviceToken(&self, serviceName: &String) -> Result<String, String> {
 		let exp = self.gkCertExp.unwrap_or(Utc::now().checked_add_days(Days::new(30)).unwrap_or_default().timestamp().try_into().unwrap());
-		match serde_json::to_string(&DeviceAuthTokenPayload { sub: serviceName.clone(), exp }) {
+		match serde_json::to_string(&DeviceAuthToken { sub: serviceName.clone(), exp }) {
 			Ok(token) => match self.cm.SignWithGatekeeperCert(token.clone()).await {
 				Ok(sig) => Ok(format!("{}.{}", engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).encode(token), sig).to_string()),
 				Err(e) => Err(e),
@@ -113,15 +108,34 @@ impl ExternalDeviceManager {
 			Err(e) => Err(e.to_string()),
 		}
 	}
-	pub async fn VerifyDeviceToken(&self, token: String) -> Result<bool, String> {
+	pub async fn VerifyDeviceToken(&self, token: &str, svc: &String) -> Result<bool, String> {
 		let parts: Vec<&str> = token.split('.').collect();
 
 		let msgDecoded = String::from_utf8(engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).decode(parts[0].to_string()).unwrap()).unwrap();
 		let sigDecoded = String::from_utf8(engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).decode(parts[1].to_string()).unwrap()).unwrap();
 
-		match self.cm.VerifyMessage("gatekeeper".to_string(), msgDecoded, sigDecoded).await {
-			Ok(_) => todo!(),
-			Err(_) => todo!(),
+		match self.cm.VerifyMessage("gatekeeper".to_string(), &msgDecoded, &sigDecoded).await {
+			Ok(r) => {
+				if r {
+					let currentTime: u64 = Utc::now().timestamp().try_into().unwrap();
+					match serde_json::from_str::<DeviceAuthToken>(&msgDecoded.as_str()) {
+						Ok(t) => {
+							if currentTime > t.exp {
+								return Err("token expired".to_string());
+							} else {
+								if t.sub != *svc {
+									return Err("token invalid".to_string());
+								}
+								Ok(true)
+							}
+						}
+						Err(e) => Err(e.to_string()),
+					}
+				} else {
+					Ok(false)
+				}
+			}
+			Err(e) => Err(e),
 		}
 	}
 	async fn HandleDeviceAuth(&self, svc: &String, path: &String, http_session: &mut ServerSession) -> (StatusCode, Vec<u8>) {
@@ -182,7 +196,7 @@ impl ExternalDeviceManager {
 					resp_body = Vec::from(format!("an error occured reading request data: {e}").as_bytes());
 				}
 			},
-			"/renew" => {
+			"/token_renew" => {
 				sc = StatusCode::NOT_IMPLEMENTED;
 			}
 			_ => {
@@ -194,6 +208,18 @@ impl ExternalDeviceManager {
 	async fn ActivateEPSForExtClient(&self, svc: &String, http_session: &mut ServerSession) -> (StatusCode, Vec<u8>) {
 		let sc: StatusCode = StatusCode::OK;
 		let resp_body: Vec<u8> = Vec::default();
+
+		if http_session.req_header().headers.contains_key("Authorization") {
+			let token = http_session.req_header().headers.get(AUTHORIZATION).unwrap().to_str().unwrap_or_default();
+			match self.VerifyDeviceToken(token, svc).await {
+				Ok(_) => {}
+				Err(e) => {
+					return self.ErrorResponse(e, "token verification failed", StatusCode::UNAUTHORIZED);
+				}
+			}
+		} else {
+			return self.ErrorResponse("", "no auth token", StatusCode::BAD_REQUEST);
+		}
 
 		match http_session.read_request_body().await {
 			Ok(b) => {

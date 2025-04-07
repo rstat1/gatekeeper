@@ -132,7 +132,7 @@ impl CertManagerSvc {
 			Err(e) => Err(e),
 		}
 	}
-	pub async fn VerifyMessage(&self, serviceName: String, message: String, msgSig: String) -> Result<bool, String> {
+	pub async fn VerifyMessage(&self, serviceName: String, message: &String, msgSig: &String) -> Result<bool, String> {
 		if serviceName.is_empty() || message.is_empty() || msgSig.is_empty() {
 			return Err("one or more invalid arguments provided".to_string());
 		}
