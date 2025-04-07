@@ -47,10 +47,13 @@ type deviceRegistration struct {
 //     Gatekeeper will use the contact the client when necessary (currently just used for provisioning
 //     new certifcates when they expire).
 func NewExternalDeviceClient(serviceURL string, endpointServicesAddr string) *ExternalDeviceClient {
+	svcName := strings.Split(serviceURL, ".")[0]
+	deviceID := svcName + "-extdev-" + uuid.NewString()
+
 	edc := &ExternalDeviceClient{
 		serviceURL: serviceURL,
 		epsAddr:    endpointServicesAddr,
-		epsServer:  NewEndpointServiceServer(true),
+		epsServer:  NewEndpointServiceServer(true, deviceID),
 	}
 
 	addrParts := strings.Split(endpointServicesAddr, ":")

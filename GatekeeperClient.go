@@ -76,7 +76,7 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 		panic(e)
 	}
 
-	ess := NewEndpointServiceServer(false)
+	ess := NewEndpointServiceServer(false, "")
 	go ess.ListenAndServe(config.GatekeeperServicesPort)
 
 	gkc := &GatekeeperClient{

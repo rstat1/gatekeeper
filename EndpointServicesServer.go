@@ -12,12 +12,14 @@ import (
 )
 
 type endpointServicesServer struct {
-	isEDC bool
+	isEDC    bool
+	deviceID string
 }
 
-func NewEndpointServiceServer(forClient bool) *endpointServicesServer {
+func NewEndpointServiceServer(forClient bool, deviceID string) *endpointServicesServer {
 	return &endpointServicesServer{
-		isEDC: forClient,
+		isEDC:    forClient,
+		deviceID: deviceID,
 	}
 }
 
@@ -65,7 +67,11 @@ func (ess *endpointServicesServer) ListenAndServe(port int) error {
 func (ess *endpointServicesServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/ping":
-		w.Write([]byte("pong"))
+		if ess.isEDC {
+			w.Write([]byte(ess.deviceID))
+		} else {
+			w.Write([]byte("pong"))
+		}
 	case "/sign_token":
 		if !ess.isEDC {
 			ess.signToken(w, r)
