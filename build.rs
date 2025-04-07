@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		.file_descriptor_set_path(gen_file_path.clone() + "/descriptors.bin")
 		.out_dir(gen_file_path.clone())
 		.compile_protos(
-			&["src/services/proto/types.proto", "src/services/proto/EndpointManager.proto", "src/services/proto/APIService.proto"],
+			&["src/services/proto/types.proto", "src/services/proto/EndpointManager.proto", "src/services/proto/ConfigService.proto"],
 			&["src/services/proto"],
 		)
 		.unwrap();
