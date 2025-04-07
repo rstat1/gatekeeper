@@ -10,7 +10,7 @@ use http::{Response, StatusCode, Uri};
 use pingora::{apps::http_app::ServeHttp, protocols::http::ServerSession, services::listening::Service};
 use std::path::Path;
 
-use tracing::{debug, error};
+use tracing::error;
 
 use crate::not_found_error;
 

@@ -28,7 +28,7 @@ use std::{
 	time::Duration,
 };
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use super::v1::NewServiceEndpoint;
 

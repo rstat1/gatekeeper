@@ -8,7 +8,7 @@
 use std::{net::SocketAddr, sync::Arc};
 use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
 use tonic::{Request, Response, Status};
-use tracing::{debug, error};
+use tracing::error;
 
 use super::{api::APIServiceImpl, endpoint_manager::EndpointManagerImpl, types::Empty};
 use crate::grpc_fd_set;

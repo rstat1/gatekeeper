@@ -16,7 +16,6 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{future::Future, sync::Arc};
 use tokio::sync::RwLock;
 use tracing::error;
-use tracing_subscriber::fmt::format;
 
 use crate::vault::VaultClient;
 
