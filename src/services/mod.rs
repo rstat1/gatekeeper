@@ -19,7 +19,7 @@ macro_rules! grpc_fd_set {
 	};
 }
 
-pub mod api;
+pub mod config_svc;
 pub mod cert_svc;
 pub mod ext_device;
 pub mod endpoint_manager;
@@ -27,7 +27,7 @@ pub mod grpc;
 pub mod static_file_server;
 
 pub mod v1 {
-	grpc_include!("gatekeeper.api.v1");
+	grpc_include!("gatekeeper.config.v1");
 	grpc_include!("gatekeeper.endpoint_manager.v1");
 }
 pub mod types {

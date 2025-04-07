@@ -15,14 +15,14 @@ use crate::{
 use std::sync::Arc;
 
 #[derive(Clone)]
-pub struct APIServiceImpl {
+pub struct ConfigServiceImpl {
 	db: Arc<DataStore>,
 	certMgr: Arc<CertManagerSvc>,
 }
 
-impl APIServiceImpl {
+impl ConfigServiceImpl {
 	pub fn new(db: Arc<DataStore>, certMgr: Arc<CertManagerSvc>) -> Self {
-		APIServiceImpl { db, certMgr }
+		ConfigServiceImpl { db, certMgr }
 	}
 	pub async fn NewService(&self, svc: &Service, parentDomain: &String) -> Result<(String, Certificate), String> {
 		let svc: GatekeeperService = GatekeeperService {

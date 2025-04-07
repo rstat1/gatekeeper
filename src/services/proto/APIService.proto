@@ -1,6 +1,6 @@
 syntax = "proto3";
-package gatekeeper.api.v1;
-option go_package = "/api/v1";
+package gatekeeper.config.v1;
+option go_package = "/config/v1";
 
 import "types.proto";
 
@@ -50,7 +50,7 @@ message AliasRequest {
     string route = 3;
 }
 
-service APIService {
+service ConfigService {
     rpc NewService(NewServiceRequest) returns (NewServiceResponse);
     rpc NewServiceDomain(NewDomainRequest) returns (ID);
     rpc NewRouteAlias(AliasRequest) returns (gatekeeper.services.types.Empty);

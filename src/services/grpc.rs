@@ -10,9 +10,9 @@ use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
 use tonic::{Request, Response, Status};
 use tracing::error;
 
-use super::{api::APIServiceImpl, endpoint_manager::EndpointManagerImpl, types::Empty};
+use super::{config_svc::ConfigServiceImpl, endpoint_manager::EndpointManagerImpl, types::Empty};
 use crate::grpc_fd_set;
-use crate::services::v1::api_service_server::*;
+use crate::services::v1::config_service_server::*;
 use crate::services::v1::endpoint_manager_server::*;
 use crate::services::v1::*;
 use crate::vault::Certificate as VaultCertificate;
@@ -21,15 +21,15 @@ pub(crate) const FD_SET: &[u8] = grpc_fd_set!("descriptors");
 
 #[derive(Clone)]
 pub struct GRPCServer {
-	apiSvcImpl: Arc<APIServiceImpl>,
+	apiSvcImpl: Arc<ConfigServiceImpl>,
 	svcRegistryImpl: Arc<EndpointManagerImpl>,
 }
 
 impl GRPCServer {
-	pub async fn InitAndServe(addr: SocketAddr, sr: Arc<EndpointManagerImpl>, api: Arc<APIServiceImpl>, serverCert: Arc<VaultCertificate>) {
+	pub async fn InitAndServe(addr: SocketAddr, sr: Arc<EndpointManagerImpl>, api: Arc<ConfigServiceImpl>, serverCert: Arc<VaultCertificate>) {
 		let srv = GRPCServer { svcRegistryImpl: Arc::clone(&sr), apiSvcImpl: Arc::clone(&api) };
 		let svcReg = EndpointManagerServer::new(srv.clone());
-		let api = ApiServiceServer::new(srv.clone());
+		let api = ConfigServiceServer::new(srv.clone());
 		let reflectSvc = tonic_reflection::server::Builder::configure().register_encoded_file_descriptor_set(FD_SET).build_v1().unwrap();
 
 		let serverID = Identity::from_pem(serverCert.certificate.clone(), serverCert.private_key.clone());
@@ -88,7 +88,7 @@ impl EndpointManager for GRPCServer {
 	}
 }
 #[tonic::async_trait]
-impl ApiService for GRPCServer {
+impl ConfigService for GRPCServer {
 	async fn new_service(&self, request: Request<NewServiceRequest>) -> Result<Response<NewServiceResponse>, Status> {
 		let svc = request.get_ref();
 		match self.apiSvcImpl.NewService(svc.svc_details.as_ref().unwrap(), &svc.parent_service_domain).await {

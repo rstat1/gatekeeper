@@ -14,7 +14,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	tonic_build::configure()
 		.build_client(false)
 		.build_transport(false)
-		.include_file(format!("{}/{}", gen_file_path.clone(), "gen.rs"))
 		.file_descriptor_set_path(gen_file_path.clone() + "/descriptors.bin")
 		.out_dir(gen_file_path.clone())
 		.compile_protos(

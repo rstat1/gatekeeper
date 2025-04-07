@@ -16,7 +16,7 @@ use tracing::{debug, info};
 use gatekeeper::data::*;
 use gatekeeper::gw::*;
 use gatekeeper::services::{
-	api::APIServiceImpl, cert_svc::CertManagerSvc, endpoint_manager::EndpointManagerImpl, ext_device::ExternalDeviceManager, grpc::GRPCServer, static_file_server::StaticFileServer,
+	cert_svc::CertManagerSvc, config_svc::ConfigServiceImpl, endpoint_manager::EndpointManagerImpl, ext_device::ExternalDeviceManager, grpc::GRPCServer, static_file_server::StaticFileServer,
 };
 use gatekeeper::vault::{Certificate, DBCredentials, VaultClient};
 
@@ -26,7 +26,7 @@ fn main() {
 
 	let db: Arc<DataStore>;
 	let dbCreds: DBCredentials;
-	let apiImpl: APIServiceImpl;
+	let apiImpl: ConfigServiceImpl;
 	let vault: Arc<VaultClient>;
 	let cmSvc: Arc<CertManagerSvc>;
 	let conf: SystemConfiguration;
@@ -99,7 +99,7 @@ fn main() {
 		}
 	}
 
-	apiImpl = APIServiceImpl::new(db.clone(), cmSvc.clone());
+	apiImpl = ConfigServiceImpl::new(db.clone(), cmSvc.clone());
 
 	let dynamic_cert = DynamicCert::new();
 	let mut tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
