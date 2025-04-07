@@ -75,7 +75,7 @@ func NewExternalDeviceClient(serviceURL string, endpointServicesAddr string) *Ex
 // service. This functionn requests from the server, some randomly generated message that will
 // be signed by the service's certificate, and returned with the provided request ID. If
 // verifcation is successful a signed token will be returned by the server that said device can use
-// for authtencation. Registers the device's endpoint services server (created by NewExternalDevice
+// for authentication. Registers the device's endpoint services server (created by NewExternalDevice
 // client) if successful.
 //
 // # Parameters
