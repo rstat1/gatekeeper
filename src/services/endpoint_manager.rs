@@ -124,7 +124,21 @@ impl EndpointManagerImpl {
 					(false, "".to_string())
 				}
 			}
-			Err(_) => todo!(),
+			Err(_) => (false, "".to_string()),
+		}
+	}
+
+	pub fn IsRPCGatewayEnabled(&self, svcName: &String) -> bool {
+		let svcs = self.svcsList.try_lock();
+		match svcs {
+			Ok(svcList) => {
+				if let Some(service) = svcList.iter().find(|s| *s.name == *svcName) {
+					service.enable_grpc_gateway
+				} else {
+					false
+				}
+			}
+			Err(_) => false,
 		}
 	}
 

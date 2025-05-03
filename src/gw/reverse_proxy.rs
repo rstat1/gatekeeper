@@ -37,7 +37,7 @@ use serde_json::Deserializer;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::field::debug;
 
-use crate::{data::DataStore, no_endpoint_err, not_found_error};
+use crate::{data::DataStore, generate_err_page, no_endpoint_err, not_found_error};
 
 use super::{grpc_transcoder::GRPCTranscoder, DEVICE_API_CONTENT_TYPE};
 
@@ -104,8 +104,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 		let mut base = hostParts[1].to_string();
 
 		if self.epMgr.IsValidDomain(&base) {
-			let (valid, aliasedService) = self.epMgr.IsValidService(&hostParts[0].to_string());
-			if valid && uri.path().starts_with("/rpc") {
+			if self.epMgr.IsRPCGatewayEnabled(&hostParts[0].to_string()) && uri.path().starts_with("/rpc") {
 				let grpcTranscode = session.downstream_modules_ctx.get_mut::<GRPCTranscoder>().expect("grpc-transcode module added");
 				grpcTranscode.init(urlParts[2].to_string(), urlParts[3].to_string());
 			}
@@ -166,20 +165,40 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 		}
 
 		if uri.path().starts_with("/rpc") {
-			session
-				.req_header_mut()
-				.set_uri(format!("https://{}{}", ctx.authority, uri.path().strip_prefix("/rpc").unwrap()).parse().unwrap());
-			session.req_header_mut().insert_header("content-type", "application/grpc");
-			session.req_header_mut().insert_header("te", "trailers");
-			session.req_header_mut().remove_header("accept");
-			session.req_header_mut().set_method(Method::POST);
-			session.req_header_mut().set_send_end_stream(false);
+			if self.epMgr.IsRPCGatewayEnabled(&hostParts[0].to_string()) {
+				session
+					.req_header_mut()
+					.set_uri(format!("https://{}{}", ctx.authority, uri.path().strip_prefix("/rpc").unwrap()).parse().unwrap());
+				session.req_header_mut().insert_header("content-type", "application/grpc");
+				session.req_header_mut().insert_header("te", "trailers");
+				session.req_header_mut().remove_header("accept");
+				session.req_header_mut().set_method(Method::POST);
+				session.req_header_mut().set_send_end_stream(false);
 
-			ctx.isGRPCService = true;
-			ctx.isHTTPToRPCRequest = true;
-			ctx.grpcService = pathParts[2].to_string();
-			ctx.grpcMethodToCall = Some(pathParts[3].to_string());
-			debug!("grpcMethodToCall: {:?}", ctx.grpcMethodToCall);
+				ctx.isGRPCService = true;
+				ctx.isHTTPToRPCRequest = true;
+				ctx.grpcService = pathParts[2].to_string();
+				ctx.grpcMethodToCall = Some(pathParts[3].to_string());
+				debug!("grpcMethodToCall: {:?}", ctx.grpcMethodToCall);
+			} else {
+				let mut h = ResponseHeader::build(400, None).unwrap();
+				h.insert_header("content-type", "text/html");
+				session.write_response_header(Box::new(h), true).await?;
+				session
+					.write_response_body(
+						Some(Bytes::from(String::into_bytes(generate_err_page(
+							"400".to_string(),
+							"Bad Request".to_string(),
+							"GRPC gateway functionality has been disabled for this service".to_string(),
+							"".to_string(),
+						)))),
+						true,
+					)
+					.await?;
+				session.set_keepalive(None);
+
+				return Ok(true);
+			}
 		}
 
 		if self.epMgr.IsValidDomain(&base) {
@@ -273,26 +292,24 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 			info!("serving gRPC request {:?}", serviceEP);
 			ctx.currentPeer = Some(serviceEP);
 			if ctx.isGRPCService {
-				// let caChain = self.grpcCert.ca_chain.as_ref().unwrap();
+				let caChain = self.grpcCert.ca_chain.as_ref().unwrap();
 
-				// let cert = X509::from_pem(&Bytes::from(self.grpcCert.certificate.clone())).unwrap();
-				// let caInt = X509::from_pem(&Bytes::from(caChain[0].clone())).unwrap();
-				// let caRoot = X509::from_pem(&Bytes::from(caChain[1].clone())).unwrap();
+				let cert = X509::from_pem(&Bytes::from(self.grpcCert.certificate.clone())).unwrap();
+				let caInt = X509::from_pem(&Bytes::from(caChain[0].clone())).unwrap();
+				let caRoot = X509::from_pem(&Bytes::from(caChain[1].clone())).unwrap();
 
-				// let key = PKey::private_key_from_pem(&Bytes::from(self.grpcCert.private_key.clone())).unwrap();
+				let key = PKey::private_key_from_pem(&Bytes::from(self.grpcCert.private_key.clone())).unwrap();
 				let mut peer = HttpPeer::new(serviceEP, false, "".to_string()); //true, ctx.service.clone());
 				let mut peerOpts = PeerOptions::new();
 
-				// peer.client_cert_key = Some(Arc::new(CertKey::new(vec![cert], key)));
+				peer.client_cert_key = Some(Arc::new(CertKey::new(vec![cert], key)));
 				peerOpts.alpn = ALPN::H2;
 
-				// peerOpts.ca = Some(Arc::new(Box::new([caInt.clone(), caRoot.clone()])));
+				peerOpts.ca = Some(Arc::new(Box::new([caInt.clone(), caRoot.clone()])));
 				peer.options = peerOpts;
 
-				let peerBox = Box::new(peer);
-				Ok(peerBox)
-				// let peer = Box::new(HttpPeer::new(serviceEP, false, "".to_string()));
-				// Ok(peer)
+				let peer = Box::new(HttpPeer::new(serviceEP, false, "".to_string()));
+				Ok(peer)
 			} else {
 				let peer = Box::new(HttpPeer::new(serviceEP, false, "".to_string()));
 				Ok(peer)

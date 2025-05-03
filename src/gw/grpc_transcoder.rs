@@ -26,13 +26,14 @@ pub struct GRPCTranscoder {
 	method: String,
 	outputMessageType: String,
 	descriptorPool: DescriptorPool,
-	wroteResponse: bool,
+	intialized: bool,
 }
 
 impl GRPCTranscoder {
 	pub fn init(&mut self, service: String, method: String) {
-		self.service = service;
 		self.method = method;
+		self.service = service;
+		self.intialized = true;
 		debug!("init self.serviceName = {}", self.service);
 		let proto = std::fs::read(format!("descriptors/{}.pb", self.service)).unwrap();
 		self.descriptorPool = DescriptorPool::decode(Bytes::from(proto)).unwrap();
@@ -61,39 +62,43 @@ impl HttpModule for GRPCTranscoder {
 	}
 
 	async fn request_body_filter(&mut self, body: &mut Option<Bytes>, end_of_stream: bool) -> Result<()> {
-		debug!("self.serviceName = {}", self.service);
-		let mut rb = String::new();
-		let md = self
-			.descriptorPool
-			.get_service_by_name(&self.service)
-			.unwrap()
-			.methods()
-			.find(|n| n.method_descriptor_proto().name.as_ref().unwrap() == self.method.as_str());
+		if self.intialized {
+			debug!("self.serviceName = {}", self.service);
+			let mut rb = String::new();
+			let md = self
+				.descriptorPool
+				.get_service_by_name(&self.service)
+				.unwrap()
+				.methods()
+				.find(|n| n.method_descriptor_proto().name.as_ref().unwrap() == self.method.as_str());
 
-		if let Some(reqBody) = body {
-			rb = String::from_utf8_lossy(reqBody).to_string();
-		} else {
-			debug!("no body?");
-			rb = "{}".to_string();
-		}
-		if let Some(method) = md {
-			info!("{}", method.input().full_name());
-			let mut deserializer = Deserializer::from_str(rb.as_str());
-			let dm = DynamicMessage::deserialize(method.input(), &mut deserializer).unwrap();
-			let mut buf = BytesMut::with_capacity(dm.encoded_len() + 1);
-			buf.put_u8(0);
-			buf.put_u32(dm.encoded_len().try_into().unwrap());
-			dm.encode(&mut buf);
-			*body = Some(Bytes::from(buf.freeze()));
-			self.outputMessageType = method.output().full_name().to_string();
+			if let Some(reqBody) = body {
+				rb = String::from_utf8_lossy(reqBody).to_string();
+			} else {
+				rb = "{}".to_string();
+			}
+			if let Some(method) = md {
+				debug!("{}", method.input().full_name());
+				let mut deserializer = Deserializer::from_str(rb.as_str());
+				let dm = DynamicMessage::deserialize(method.input(), &mut deserializer).unwrap();
+				let mut buf = BytesMut::with_capacity(dm.encoded_len() + 1);
+				buf.put_u8(0);
+				buf.put_u32(dm.encoded_len().try_into().unwrap());
+				dm.encode(&mut buf);
+				*body = Some(Bytes::from(buf.freeze()));
+				self.outputMessageType = method.output().full_name().to_string();
+			}
 		}
 
 		Ok(())
 	}
 
 	fn response_body_filter(&mut self, body: &mut Option<Bytes>, end_of_stream: bool) -> Result<()> {
+		if !self.intialized {
+			return Ok(());
+		}
 		if (end_of_stream) {
-			debug!("end of stream time to get to work on a {} buffer", self.currentMaxLen);
+			debug!("end of stream time to get to work on a {} byte buffer", self.currentMaxLen);
 			if self.currentMaxLen > 0 {
 				let md = self
 					.descriptorPool
@@ -115,7 +120,6 @@ impl HttpModule for GRPCTranscoder {
 							error!("{:?}", e);
 						}
 					}
-					self.wroteResponse = true;
 				} else {
 					error!("no method descriptor");
 				}
@@ -140,7 +144,7 @@ impl HttpModule for GRPCTranscoder {
 			if grpcStatus.to_str().unwrap() != "0" {
 				resp.set_status(StatusCode::INTERNAL_SERVER_ERROR);
 			}
-		} 
+		}
 		if let Some(respReason) = resp.get_reason_phrase() {
 			if respReason == "OK" {
 				resp.insert_header("content-type", "application/json");

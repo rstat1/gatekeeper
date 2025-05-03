@@ -27,7 +27,7 @@ message Service {
     repeated string securityPolicies = 5;
     string id = 6;
     bool allowsExternalDeviceLogin = 7;
-    bool hasGRPCEndpoint = 8;
+    bool enableGRPCGateway = 8;
     repeated Alias routeAliases = 9;
 }
 message ServiceCredentials {
