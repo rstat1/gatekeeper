@@ -1,0 +1,4 @@
+[submodule "pingora"]
+	path = vendor/pingora
+	url = https://github.com/rstat1/pingora
+	branch = main

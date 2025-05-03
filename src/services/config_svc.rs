@@ -9,7 +9,8 @@ use uuid::Uuid;
 
 use super::{cert_svc::CertManagerSvc, v1::*};
 use crate::{
-	data::{Alias, DataStore, Domain, GatekeeperService},
+	data::DataStore,
+	services::v1::{ServiceDomain, Service},
 	vault::Certificate,
 };
 use std::sync::Arc;
@@ -25,15 +26,9 @@ impl ConfigServiceImpl {
 		ConfigServiceImpl { db, certMgr }
 	}
 	pub async fn NewService(&self, svc: &Service, parentDomain: &String) -> Result<(String, Certificate), String> {
-		let svc: GatekeeperService = GatekeeperService {
-			id: Uuid::now_v7().to_string(),
-			name: svc.name.clone(),
-			internal: svc.internal,
-			securityPolices: None,
-			routeAliases: None,
-			isFrostSvc: svc.is_frost_service,
-			allowEDL: Some(false),
-		};
+		let mut svc = svc.clone();
+		svc.id = Uuid::now_v7().to_string();
+
 		let svcCert: Certificate;
 
 		match self.db.GetDomainByName(parentDomain).await {
@@ -58,19 +53,21 @@ impl ConfigServiceImpl {
 		}
 	}
 	pub async fn NewServiceDomain(&self, domain: &ServiceDomain) -> Result<String, String> {
-		let d: Domain = Domain {
-			id: Uuid::now_v7().to_string(),
-			base: domain.base.clone(),
-			frostCompatEnabled: false,
-			securityPolicies: None,
-			services: Vec::new(),
-			gatekeeperManagedCerts: domain.gatekeeper_managed_certs,
-		};
+		let mut domain = domain.clone();
+		domain.id = Uuid::now_v7().to_string();
+		// let d: Domain = Domain {
+		// 	id: Uuid::now_v7().to_string(),
+		// 	base: domain.base.clone(),
+		// 	frostCompatEnabled: false,
+		// 	securityPolicies: None,
+		// 	services: Vec::new(),
+		// 	gatekeeperManagedCerts: domain.gatekeeper_managed_certs,
+		// };
 
-		match self.db.NewServiceDomain(&d).await {
+		match self.db.NewServiceDomain(&domain).await {
 			Ok(success) => {
 				if success {
-					return Ok(d.id);
+					return Ok(domain.id);
 				}
 				Err("already exists".to_string())
 			}
@@ -89,28 +86,28 @@ impl ConfigServiceImpl {
 			Err(e) => Err(e.to_string()),
 		}
 	}
-	pub async fn GetServiceByName(&self, name: &String) -> Result<Option<GatekeeperService>, String> {
+	pub async fn GetServiceByName(&self, name: &String) -> Result<Option<Service>, String> {
 		match self.db.GetServiceByName(name).await {
 			Ok(Some(gks)) => Ok(Some(gks)),
 			Ok(None) => Ok(None),
 			Err(e) => Err(e.to_string()),
 		}
 	}
-	pub async fn GetServiceByID(&self, id: &String) -> Result<Option<GatekeeperService>, String> {
+	pub async fn GetServiceByID(&self, id: &String) -> Result<Option<Service>, String> {
 		match self.db.GetServiceByID(id).await {
 			Ok(Some(gks)) => Ok(Some(gks)),
 			Ok(None) => Ok(None),
 			Err(e) => Err(e.to_string()),
 		}
 	}
-	pub async fn GetDomainByName(&self, name: &String) -> Result<Option<Domain>, String> {
+	pub async fn GetDomainByName(&self, name: &String) -> Result<Option<ServiceDomain>, String> {
 		match self.db.GetDomainByName(name).await {
 			Ok(Some(d)) => Ok(Some(d)),
 			Ok(None) => Ok(None),
 			Err(e) => Err(e.to_string()),
 		}
 	}
-	pub async fn GetDomainByID(&self, id: &String) -> Result<Option<Domain>, String> {
+	pub async fn GetDomainByID(&self, id: &String) -> Result<Option<ServiceDomain>, String> {
 		match self.db.GetDomainByID(id).await {
 			Ok(Some(d)) => Ok(Some(d)),
 			Ok(None) => Ok(None),

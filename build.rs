@@ -16,6 +16,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		.build_transport(false)
 		.file_descriptor_set_path(gen_file_path.clone() + "/descriptors.bin")
 		.out_dir(gen_file_path.clone())
+		.message_attribute("Alias", "#[derive(serde::Serialize, serde::Deserialize)]")
+		.message_attribute("Service", "#[derive(serde::Serialize, serde::Deserialize)]")
+		.message_attribute("ServiceDomain", "#[derive(serde::Serialize, serde::Deserialize)]")
 		.compile_protos(
 			&["src/services/proto/types.proto", "src/services/proto/EndpointManager.proto", "src/services/proto/ConfigService.proto"],
 			&["src/services/proto"],

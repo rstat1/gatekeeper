@@ -17,7 +17,10 @@ use std::{future::Future, sync::Arc};
 use tokio::sync::RwLock;
 use tracing::error;
 
-use crate::vault::VaultClient;
+use crate::{
+	services::v1::{Alias, Service, ServiceDomain},
+	vault::VaultClient,
+};
 
 pub struct DataStore {
 	client: RwLock<Client>,
@@ -47,61 +50,10 @@ pub struct SystemConfiguration {
 	pub devAuthServerAddr: Option<String>,
 }
 
-/// A ServiceDomain is used to assign services to a base domain.
-///
-/// Each assigned service inherits the security policies applied to the base domain.
-#[derive(Clone, Serialize, Deserialize, Default)]
-pub struct Domain {
-	pub id: String,
-	pub base: String,
-	pub services: Vec<String>,
-	pub frostCompatEnabled: bool,
-	pub gatekeeperManagedCerts: bool,
-	pub securityPolicies: Option<Vec<String>>,
-}
-
-#[derive(Clone, Serialize, Deserialize, Default)]
-pub struct Alias {
-	pub alias: String,
-	pub route: String,
-}
-
-#[derive(Clone, Serialize, Deserialize, Default)]
-pub struct GatekeeperService {
-	pub id: String,
-	pub name: String,
-	pub internal: bool,
-	pub isFrostSvc: bool,
-	pub routeAliases: Option<Vec<Alias>>,
-	pub securityPolices: Option<Vec<String>>,
-	pub allowEDL: Option<bool>,
-}
-
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Endpoint {
 	pub port: i16,
 	pub listeningAddress: String,
-}
-
-impl PartialEq for Alias {
-	fn ne(&self, other: &Self) -> bool {
-		!self.alias.eq(&other.alias) && !self.route.eq(&other.route)
-	}
-
-	fn eq(&self, other: &Self) -> bool {
-		self.alias == other.alias && self.route == other.route
-	}
-}
-
-impl PartialEq for GatekeeperService {
-	fn eq(&self, other: &Self) -> bool {
-		self.id == other.id
-			&& self.name == other.name
-			&& self.internal == other.internal
-			&& self.isFrostSvc == other.isFrostSvc
-			&& self.routeAliases == other.routeAliases
-			&& self.securityPolices == other.securityPolices
-	}
 }
 
 impl DataStore {
@@ -131,11 +83,11 @@ impl DataStore {
 			Err(e) => Err(e),
 		}
 	}
-	pub async fn NewServiceDomain(&self, domain: &Domain) -> Result<bool, mongodb::error::Error> {
+	pub async fn NewServiceDomain(&self, domain: &ServiceDomain) -> Result<bool, mongodb::error::Error> {
 		self.retryableQuery(|| async { self.insertUnique("servicedomains", domain, doc! {"base": &domain.base}, None).await })
 			.await
 	}
-	pub async fn NewService(&self, svc: &GatekeeperService, parentDomain: &String) -> Result<bool, mongodb::error::Error> {
+	pub async fn NewService(&self, svc: &Service, parentDomain: &String) -> Result<bool, mongodb::error::Error> {
 		self.retryableQuery(|| async {
 			let client = self.client.read().await;
 			let mut newSvcSession = client.start_session().await.unwrap();
@@ -160,14 +112,12 @@ impl DataStore {
 	}
 	pub async fn AddRouteAliasToService(&self, id: &String, alias: &Alias) -> Result<bool, mongodb::error::Error> {
 		self.retryableQuery(|| async {
-			let coll: Collection<Domain> = self.client.read().await.database(&self.collectionName).collection::<Domain>("services");
+			let coll: Collection<ServiceDomain> = self.client.read().await.database(&self.collectionName).collection::<ServiceDomain>("services");
 			let svc = self.GetServiceByID(id).await;
 			match svc {
 				Ok(Some(s)) => {
-					if let Some(aliases) = s.routeAliases {
-						if !aliases.is_empty() && aliases.contains(alias) {
-							return Err(mongodb::error::Error::custom("this service already contains a similar alias."));
-						}
+					if !s.route_aliases.is_empty() && s.route_aliases.contains(alias) {
+						return Err(mongodb::error::Error::custom("this service already contains a similar alias."));
 					}
 					let alias_doc = mongodb::bson::to_document(alias)?;
 					match coll.update_one(doc! {"id": id}, doc! {"$addToSet": doc!{"routeAliases": doc!{"$each": [alias_doc]} }}).await {
@@ -181,9 +131,9 @@ impl DataStore {
 		})
 		.await
 	}
-	pub async fn GetDomainByName(&self, name: &String) -> Result<Option<Domain>, mongodb::error::Error> {
+	pub async fn GetDomainByName(&self, name: &String) -> Result<Option<ServiceDomain>, mongodb::error::Error> {
 		self.retryableQuery(|| async {
-			let coll: Collection<Domain> = self.client.read().await.database(&self.collectionName).collection::<Domain>("servicedomains");
+			let coll: Collection<ServiceDomain> = self.client.read().await.database(&self.collectionName).collection::<ServiceDomain>("servicedomains");
 			let cursor = coll.find_one(doc! {"base": name}).await;
 			match cursor {
 				Ok(Some(sd)) => Ok(Some(sd)),
@@ -193,9 +143,9 @@ impl DataStore {
 		})
 		.await
 	}
-	pub async fn GetDomainByID(&self, id: &String) -> Result<Option<Domain>, mongodb::error::Error> {
+	pub async fn GetDomainByID(&self, id: &String) -> Result<Option<ServiceDomain>, mongodb::error::Error> {
 		self.retryableQuery(|| async {
-			let coll: Collection<Domain> = self.client.read().await.database(&self.collectionName).collection::<Domain>("servicedomains");
+			let coll: Collection<ServiceDomain> = self.client.read().await.database(&self.collectionName).collection::<ServiceDomain>("servicedomains");
 			let cursor = coll.find_one(doc! {"id": id}).await;
 			match cursor {
 				Ok(Some(sd)) => Ok(Some(sd)),
@@ -207,7 +157,7 @@ impl DataStore {
 	}
 	pub async fn GetDomainNames(&self) -> Result<Vec<String>, mongodb::error::Error> {
 		self.retryableQuery(|| async {
-			let serviceDomainsColl: Collection<Domain> = self.client.read().await.database(&self.collectionName).collection("servicedomains");
+			let serviceDomainsColl: Collection<ServiceDomain> = self.client.read().await.database(&self.collectionName).collection("servicedomains");
 			let cursor = serviceDomainsColl.find(doc! {}).await; //.run()?;
 			let mut domains: Vec<String> = Vec::new();
 
@@ -223,11 +173,11 @@ impl DataStore {
 		})
 		.await
 	}
-	pub async fn GetDomains(&self) -> Result<Vec<Domain>, mongodb::error::Error> {
+	pub async fn GetDomains(&self) -> Result<Vec<ServiceDomain>, mongodb::error::Error> {
 		self.retryableQuery(|| async {
-			let serviceDomainsColl: Collection<Domain> = self.client.read().await.database(&self.collectionName).collection("servicedomains");
+			let serviceDomainsColl: Collection<ServiceDomain> = self.client.read().await.database(&self.collectionName).collection("servicedomains");
 			let cursor = serviceDomainsColl.find(doc! {}).await; //.run()?;
-			let mut domains: Vec<Domain> = Vec::new();
+			let mut domains: Vec<ServiceDomain> = Vec::new();
 
 			match cursor {
 				Ok(mut c) => {
@@ -241,9 +191,9 @@ impl DataStore {
 		})
 		.await
 	}
-	pub async fn GetServiceByName(&self, name: &String) -> Result<Option<GatekeeperService>, mongodb::error::Error> {
+	pub async fn GetServiceByName(&self, name: &String) -> Result<Option<Service>, mongodb::error::Error> {
 		self.retryableQuery(|| async {
-			let servicesColl: Collection<GatekeeperService> = self.client.read().await.database(&self.collectionName).collection("services");
+			let servicesColl: Collection<Service> = self.client.read().await.database(&self.collectionName).collection("services");
 			match servicesColl.find_one(doc! {"name": name}).await {
 				Ok(Some(svc)) => return Ok(Some(svc)),
 				Ok(None) => return Ok(None),
@@ -252,9 +202,9 @@ impl DataStore {
 		})
 		.await
 	}
-	pub async fn GetServiceByID(&self, id: &String) -> Result<Option<GatekeeperService>, mongodb::error::Error> {
+	pub async fn GetServiceByID(&self, id: &String) -> Result<Option<Service>, mongodb::error::Error> {
 		self.retryableQuery(|| async {
-			let servicesColl: Collection<GatekeeperService> = self.client.read().await.database(&self.collectionName).collection("services");
+			let servicesColl: Collection<Service> = self.client.read().await.database(&self.collectionName).collection("services");
 			match servicesColl.find_one(doc! {"id": id}).await {
 				Ok(Some(svc)) => return Ok(Some(svc)),
 				Ok(None) => return Ok(None),
@@ -263,11 +213,11 @@ impl DataStore {
 		})
 		.await
 	}
-	pub async fn GetAllServices(&self) -> Result<Vec<GatekeeperService>, mongodb::error::Error> {
+	pub async fn GetAllServices(&self) -> Result<Vec<Service>, mongodb::error::Error> {
 		self.retryableQuery(|| async {
-			let servicesColl: Collection<GatekeeperService> = self.client.read().await.database(&self.collectionName).collection("services");
+			let servicesColl: Collection<Service> = self.client.read().await.database(&self.collectionName).collection("services");
 			let cursor = servicesColl.find(doc! {}).await; //.run()?;
-			let mut svcs: Vec<GatekeeperService> = Vec::new();
+			let mut svcs: Vec<Service> = Vec::new();
 
 			match cursor {
 				Ok(mut c) => {
@@ -283,9 +233,9 @@ impl DataStore {
 	}
 	pub async fn GetServiceEDLSetting(&self, name: &String) -> Result<bool, mongodb::error::Error> {
 		self.retryableQuery(|| async {
-			let servicesColl: Collection<GatekeeperService> = self.client.read().await.database(&self.collectionName).collection("services");
+			let servicesColl: Collection<Service> = self.client.read().await.database(&self.collectionName).collection("services");
 			match servicesColl.find_one(doc! {"name": name}).await {
-				Ok(Some(svc)) => return Ok(svc.allowEDL.unwrap_or(false)),
+				Ok(Some(svc)) => return Ok(svc.allows_external_device_login),
 				Ok(None) => return Ok(false),
 				Err(e) => return Err(e),
 			};
@@ -297,7 +247,7 @@ impl DataStore {
 			match self.GetDomainByID(id).await {
 				Ok(Some(sd)) => {
 					if sd.services.is_empty() {
-						let coll: Collection<Domain> = self.client.read().await.database(&self.collectionName).collection::<Domain>("servicedomains");
+						let coll: Collection<ServiceDomain> = self.client.read().await.database(&self.collectionName).collection::<ServiceDomain>("servicedomains");
 						match coll.delete_one(doc! {"id": id}).await {
 							Ok(r) => Ok(r.deleted_count > 0),
 							Err(e) => Err(e),
@@ -317,7 +267,7 @@ impl DataStore {
 	}
 	pub async fn DeleteService(&self, id: &String) -> Result<bool, mongodb::error::Error> {
 		self.retryableQuery(|| async {
-			let servicesColl: Collection<GatekeeperService> = self.client.read().await.database(&self.collectionName).collection("services");
+			let servicesColl: Collection<Service> = self.client.read().await.database(&self.collectionName).collection("services");
 			match servicesColl.delete_one(doc! {"id": id}).await {
 				Ok(r) => Ok(r.deleted_count > 0),
 				Err(e) => Err(e),
@@ -364,7 +314,7 @@ impl DataStore {
 	async fn addServiceToDomain(&self, serviceName: &String, domainName: &String, session: &mut ClientSession) -> Result<bool, mongodb::error::Error> {
 		//TODO: use retryable query.
 		// self.retryableQuery(|| async {
-		let coll: Collection<Domain> = self.client.read().await.database(&self.collectionName).collection::<Domain>("servicedomains");
+		let coll: Collection<ServiceDomain> = self.client.read().await.database(&self.collectionName).collection::<ServiceDomain>("servicedomains");
 		match coll
 			.update_one(doc! {"base": domainName}, doc! {"$addToSet": doc!{"services": doc!{"$each": [serviceName]}}})
 			.session(&mut *session)

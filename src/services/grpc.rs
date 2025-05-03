@@ -127,52 +127,28 @@ impl ConfigService for GRPCServer {
 	}
 	async fn get_service_by_id(&self, request: Request<Id>) -> Result<Response<Service>, Status> {
 		match self.apiSvcImpl.GetServiceByID(&request.get_ref().id).await {
-			Ok(Some(svc)) => Ok(Response::new(Service {
-				id: svc.id,
-				is_frost_service: svc.isFrostSvc,
-				name: svc.name,
-				internal: svc.internal,
-				allows_external_device_login: false,
-				security_policies: svc.securityPolices.unwrap_or(Vec::default()),
-			})),
+			Ok(Some(svc)) => Ok(Response::new(svc)),
 			Ok(None) => Err(Status::new(tonic::Code::NotFound, "servicw with the provided ID doesn't not exist")),
 			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
 		}
 	}
 	async fn get_service_by_name(&self, request: Request<ByNameRequest>) -> Result<Response<Service>, tonic::Status> {
 		match self.apiSvcImpl.GetServiceByName(&request.get_ref().name).await {
-			Ok(Some(svc)) => Ok(Response::new(Service {
-				id: svc.id,
-				is_frost_service: svc.isFrostSvc,
-				name: svc.name,
-				internal: svc.internal,
-				allows_external_device_login: false,
-				security_policies: svc.securityPolices.unwrap_or(Vec::default()),
-			})),
+			Ok(Some(svc)) => Ok(Response::new(svc)),
 			Ok(None) => Err(Status::new(tonic::Code::NotFound, "servicw with the provided ID doesn't not exist")),
 			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
 		}
 	}
 	async fn get_domain_by_id(&self, request: Request<Id>) -> Result<Response<ServiceDomain>, Status> {
 		match self.apiSvcImpl.GetDomainByID(&request.get_ref().id).await {
-			Ok(Some(d)) => Ok(Response::new(ServiceDomain {
-				base: d.base,
-				attached_services: d.services,
-				gatekeeper_managed_certs: d.gatekeeperManagedCerts,
-				domain_security_policies: d.securityPolicies.unwrap_or(Vec::default()),
-			})),
+			Ok(Some(d)) => Ok(Response::new(d)),
 			Ok(None) => Err(Status::new(tonic::Code::NotFound, "service with the provided ID doesn't not exist")),
 			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
 		}
 	}
 	async fn get_domain_by_name(&self, request: Request<ByNameRequest>) -> Result<Response<ServiceDomain>, tonic::Status> {
 		match self.apiSvcImpl.GetDomainByName(&request.get_ref().name).await {
-			Ok(Some(d)) => Ok(Response::new(ServiceDomain {
-				base: d.base,
-				attached_services: d.services,
-				gatekeeper_managed_certs: d.gatekeeperManagedCerts,
-				domain_security_policies: d.securityPolicies.unwrap_or(Vec::default()),
-			})),
+			Ok(Some(d)) => Ok(Response::new(d)),
 			Ok(None) => Err(Status::new(tonic::Code::NotFound, "service with the provided name doesn't not exist")),
 			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
 		}

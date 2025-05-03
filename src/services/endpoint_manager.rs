@@ -6,7 +6,8 @@
 */
 
 use crate::{
-	data::{self, Domain, GatekeeperService},
+	data::{self},
+	services::v1::{Service, ServiceDomain},
 	vault::Certificate as VaultCertificate,
 };
 use bytes::Bytes;
@@ -44,14 +45,17 @@ struct HealthChecker {
 
 struct RegisteredEndpoint {
 	pub address: SocketAddr,
+	pub isExternalDevice: bool,
 	pub healthCheckRoute: String,
+	pub deviceID: Option<String>,
+	pub serviceName: String,
 }
 
 pub struct EndpointManagerImpl {
-	domains: Vec<Domain>,
+	domains: Vec<ServiceDomain>,
 	_db: Arc<data::DataStore>,
 	gkCert: Arc<VaultCertificate>,
-	svcsList: Vec<GatekeeperService>,
+	svcsList: Vec<Service>,
 	epMap: Mutex<HashMap<String, Vec<RegisteredEndpoint>>>,
 }
 
@@ -80,7 +84,7 @@ impl<T> RemoveElem<T> for Vec<T> {
 }
 
 impl EndpointManagerImpl {
-	pub async fn new(data: Arc<data::DataStore>, svcsList: Vec<GatekeeperService>, healthPingInterval: Option<u64>, gkCert: Arc<VaultCertificate>) -> Result<Arc<Self>, String> {
+	pub async fn new(data: Arc<data::DataStore>, svcsList: Vec<Service>, healthPingInterval: Option<u64>, gkCert: Arc<VaultCertificate>) -> Result<Arc<Self>, String> {
 		match data.GetDomains().await {
 			Ok(d) => {
 				let epmgr = Arc::new(EndpointManagerImpl { _db: data, svcsList, domains: Vec::from(d), epMap: Mutex::new(HashMap::new()), gkCert });
@@ -112,12 +116,24 @@ impl EndpointManagerImpl {
 			Ok(mut m) => {
 				if let Some(eps) = m.get_mut(&request.endpoint_name) {
 					debug!("added endpoint {} to service {} with hcr {}", &request.endpoint, &request.service_name, &request.health_check_route);
-					eps.push(RegisteredEndpoint { address: request.endpoint.parse().unwrap(), healthCheckRoute: request.health_check_route.clone() });
+					eps.push(RegisteredEndpoint {
+						serviceName: request.service_name.clone(),
+						address: request.endpoint.parse().unwrap(),
+						healthCheckRoute: request.health_check_route.clone(),
+						isExternalDevice: false,
+						deviceID: None,
+					});
 				} else {
 					debug!("added new endpoint {} at {} with hcr {}", &request.endpoint_name, &request.endpoint, &request.health_check_route);
 					m.insert(
 						request.endpoint_name.clone(),
-						vec![RegisteredEndpoint { address: request.endpoint.parse().unwrap(), healthCheckRoute: request.health_check_route.clone() }],
+						vec![RegisteredEndpoint {
+							serviceName: request.service_name.clone(),
+							address: request.endpoint.parse().unwrap(),
+							healthCheckRoute: request.health_check_route.clone(),
+							isExternalDevice: false,
+							deviceID: None,
+						}],
 					);
 				}
 			}
@@ -129,7 +145,7 @@ impl EndpointManagerImpl {
 
 		Ok(true)
 	}
-	pub fn AddClientDeviceToList(&self, service_name: &String, deviceID: String, endpoint: String) -> Result<bool, String> {
+	pub fn AddClientDeviceToPingerList(&self, service_name: &String, deviceID: String, endpoint: String) -> Result<bool, String> {
 		let epMap = self.epMap.try_lock();
 
 		if service_name.is_empty() || deviceID.is_empty() || endpoint.is_empty() {
@@ -144,10 +160,25 @@ impl EndpointManagerImpl {
 			Ok(mut m) => {
 				if let Some(eps) = m.get_mut(&deviceID) {
 					debug!("added endpoint {} to service {} with hcr {}", &endpoint, service_name, &"/ping".to_string());
-					eps.push(RegisteredEndpoint { address: endpoint.parse().unwrap(), healthCheckRoute: "/ping".to_string() });
+					eps.push(RegisteredEndpoint {
+						serviceName: service_name.clone(),
+						address: endpoint.parse().unwrap(),
+						healthCheckRoute: "/ping".to_string(),
+						isExternalDevice: true,
+						deviceID: Some(deviceID),
+					});
 				} else {
 					debug!("added new endpoint {} at {} with hcr {}", &deviceID, &endpoint, "/ping".to_string());
-					m.insert(deviceID.clone(), vec![RegisteredEndpoint { address: endpoint.parse().unwrap(), healthCheckRoute: "/ping".to_string() }]);
+					m.insert(
+						deviceID.clone(),
+						vec![RegisteredEndpoint {
+							serviceName: service_name.clone(),
+							address: endpoint.parse().unwrap(),
+							healthCheckRoute: "/ping".to_string(),
+							isExternalDevice: true,
+							deviceID: Some(deviceID),
+						}],
+					);
 				}
 			}
 			Err(e) => {
@@ -224,7 +255,7 @@ impl HealthChecker {
 									debug!("checking svc: {key}, rep: {rep}");
 									let addrParts = rep.healthCheckRoute.split("/").collect::<Vec<&str>>();
 									let addr: SocketAddr = addrParts[2].to_string().parse().unwrap();
-									let mut peer = HttpPeer::new(addr, true, key.clone());
+									let mut peer = HttpPeer::new(addr, true, rep.serviceName.clone());
 
 									let mut peerOpts = PeerOptions::new();
 
@@ -247,19 +278,34 @@ impl HealthChecker {
 												response_body.push_str(&String::from_utf8_lossy(&chunk));
 											}
 
-											if response_body != "pong" {
-												error!("inproper response, adding {key} endpoint to removal list");
-												to_remove.push(rep.address);
+											if !rep.isExternalDevice {
+												if response_body != "pong" {
+													error!("incorrect response, adding endpoint '{key}' to removal list");
+													to_remove.push(rep.address.to_string());
+												}
+											} else {
+												if let Some(devID) = &rep.deviceID {
+													if response_body != *devID {
+														error!("incorrect response, adding device '{key}' to removal list");
+														to_remove.push(devID.clone());
+													}
+												}
 											}
 										}
 										Err(e) => {
-											error!("adding {key} endpoint to removal list because it failed to respond to a ping with error: {:?}", e);
-											to_remove.push(rep.address);
+											error!("incorrect response, adding endpoint or device '{key}' to removal list: {:?}", e);
+											to_remove.push(rep.address.to_string());
 										}
 									}
 								}
 								for addr in to_remove {
-									val.remove_elem(|e| e.address == addr);
+									val.remove_elem(|e| {
+										if e.isExternalDevice {
+											return addr == *e.deviceID.as_ref().unwrap_or(&"".to_string());
+										} else {
+											e.address.to_string() == addr
+										}
+									});
 								}
 							}
 						}

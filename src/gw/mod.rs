@@ -18,11 +18,12 @@ use std::sync::Arc;
 use tonic::async_trait;
 use tracing::{debug, error};
 
-use crate::data::{Alias, DataStore, GatekeeperService};
-use crate::services::endpoint_manager::EndpointManagerImpl;
-use crate::vault::Certificate;
+use crate::{data::DataStore, services::endpoint_manager::EndpointManagerImpl, vault::Certificate, services::v1::{Alias, Service}};
+
+const DEVICE_API_CONTENT_TYPE: &str = "application/x-gatekeeper-device-api";
 
 pub mod reverse_proxy;
+pub mod grpc_transcoder;
 
 pub struct DynamicCert;
 pub struct ReverseProxy {
@@ -35,16 +36,14 @@ pub struct ReverseProxy {
 }
 
 impl ReverseProxy {
-	pub fn new(epMgr: Arc<EndpointManagerImpl>, svcs: Vec<GatekeeperService>, staticFileServerAddr: &String, gkCert: &Certificate, deviceAuthServerAddr: &String) -> Self {
+	pub fn new(epMgr: Arc<EndpointManagerImpl>, svcs: Vec<Service>, staticFileServerAddr: &String, gkCert: &Certificate, deviceAuthServerAddr: &String) -> Self {
 		let mut svcNames: Vec<String> = Vec::default();
 		let mut aliasToSvc: HashMap<String, String> = HashMap::default();
 
 		for svc in svcs {
 			svcNames.push(svc.name.clone());
-			if let Some(aliases) = svc.routeAliases {
-				for alias in aliases {
-					aliasToSvc.insert(alias.alias, svc.name.clone());
-				}
+			for alias in svc.route_aliases {
+				aliasToSvc.insert(alias.alias, svc.name.clone());
 			}
 		}
 

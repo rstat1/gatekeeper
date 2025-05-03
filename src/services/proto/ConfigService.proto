@@ -8,11 +8,17 @@ message ID {
     string id = 1;
 }
 
+message Alias {
+    string alias = 1;
+	string route = 2;
+}
+
 message ServiceDomain {
     string base = 1;
-    repeated string attachedServices = 2;
+    repeated string services = 2;
     repeated string domainSecurityPolicies = 3;
     bool gatekeeperManagedCerts = 4;
+    string id = 5;
 }    
 message Service {
     string name = 1;
@@ -21,7 +27,9 @@ message Service {
     repeated string securityPolicies = 5;
     string id = 6;
     bool allowsExternalDeviceLogin = 7;
-}    
+    bool hasGRPCEndpoint = 8;
+    repeated Alias routeAliases = 9;
+}
 message ServiceCredentials {
     string ca_cert = 1;
     string certificate = 2;

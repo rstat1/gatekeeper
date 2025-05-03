@@ -17,6 +17,7 @@ use gatekeeper::data::*;
 use gatekeeper::gw::*;
 use gatekeeper::services::{
 	cert_svc::CertManagerSvc, config_svc::ConfigServiceImpl, endpoint_manager::EndpointManagerImpl, ext_device::ExternalDeviceManager, grpc::GRPCServer, static_file_server::StaticFileServer,
+	v1::Service,
 };
 use gatekeeper::vault::{Certificate, DBCredentials, VaultClient};
 
@@ -32,7 +33,7 @@ fn main() {
 	let conf: SystemConfiguration;
 	let apiServiceCert: Arc<Certificate>;
 	let srImpl: Arc<EndpointManagerImpl>;
-	let svcsList: Vec<GatekeeperService>;
+	let svcsList: Vec<Service>;
 	let mut server = Server::new(None).unwrap();
 	let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
 

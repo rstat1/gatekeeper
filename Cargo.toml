@@ -9,14 +9,14 @@ rustls = [ "reqwest/rustls-tls", "rustify/rustls-tls" ]
 
 [dependencies]
 async-trait="0.1"
-pingora = { version = "0.4", features = [ "boringssl" ] }
-pingora-core = "0.4"
-pingora-load-balancing = "0.4"
-pingora-proxy = "0.4"
-pingora-http = "0.4"
+pingora = { version = "0.4.0", features = ["boringssl"], path = "vendor/pingora/pingora" }
+pingora-core = { version = "0.4.0", path = "vendor/pingora/pingora-core" }
+pingora-load-balancing = { version = "0.4.0", path = "vendor/pingora/pingora-load-balancing" }
+pingora-proxy = { version = "0.4.0", path = "vendor/pingora/pingora-proxy" }
+pingora-http = { version = "0.4.0", path = "vendor/pingora/pingora-http" }
 serde = "1.0.217"
 serde_json = "1.0.138"
-mongodb = {version = "3.2.1"} #, features = ["sync"]}
+mongodb = {version = "3.2.1"}
 tokio = {version = "1.43.0", features = ["macros", "rt-multi-thread"] }
 chrono = "0.4.39"
 futures = "0.3.31"
@@ -39,10 +39,11 @@ http-body-util = "0.1.2"
 http-body = "1.0.1"
 base64 = "0.22.1"
 rcgen = "0.13.2"
-rand = { version = "0.9.0", default-features = false, features = ["std", "std_rng"] }
+rand = { version = "0.9.0", default-features = false, features = ["std", "thread_rng"] }
 x509-parser = "0.17.0"
 p384 = "0.13.1"
 sha2 = "0.10.8"
+prost-reflect = { version = "0.15.2", features = ["derive", "serde"] }
 
 [build-dependencies]
 tonic-build = "0.12.3"

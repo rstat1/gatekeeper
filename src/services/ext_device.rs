@@ -90,7 +90,7 @@ impl ExternalDeviceManager {
 		match self.db.ReadStringFromRedis(resp.requestID) {
 			Ok(details) => {
 				let req: DeviceAuthRequestData = serde_json::from_slice(details.as_bytes()).unwrap_or_default();
-				match self.cm.VerifyMessage(req.service, &req.message, &resp.signature).await {
+				match self.cm.VerifySignature(req.service, &req.message, &resp.signature).await {
 					Ok(r) => Ok(r),
 					Err(e) => Err(format!("VerifyMessage failed: {e}")),
 				}
@@ -114,7 +114,7 @@ impl ExternalDeviceManager {
 		let msgDecoded = String::from_utf8(engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).decode(parts[0].to_string()).unwrap()).unwrap();
 		let sigDecoded = String::from_utf8(engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).decode(parts[1].to_string()).unwrap()).unwrap();
 
-		match self.cm.VerifyMessage("gatekeeper".to_string(), &msgDecoded, &sigDecoded).await {
+		match self.cm.VerifySignature("gatekeeper".to_string(), &msgDecoded, &sigDecoded).await {
 			Ok(r) => {
 				if r {
 					let currentTime: u64 = Utc::now().timestamp().try_into().unwrap();
@@ -225,7 +225,7 @@ impl ExternalDeviceManager {
 			Ok(b) => {
 				if let Some(regData) = b {
 					let drd = serde_json::from_slice::<DeviceRegistrationData>(&regData).unwrap_or_default();
-					match self.epm.AddClientDeviceToList(svc, drd.deviceID, drd.servicesAddr) {
+					match self.epm.AddClientDeviceToPingerList(svc, drd.deviceID, drd.servicesAddr) {
 						Ok(_) => {}
 						Err(e) => {
 							return self.ErrorResponse(e, "error occured during device eps activation", StatusCode::INTERNAL_SERVER_ERROR);
