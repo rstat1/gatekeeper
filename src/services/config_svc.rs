@@ -55,15 +55,6 @@ impl ConfigServiceImpl {
 	pub async fn NewServiceDomain(&self, domain: &ServiceDomain) -> Result<String, String> {
 		let mut domain = domain.clone();
 		domain.id = Uuid::now_v7().to_string();
-		// let d: Domain = Domain {
-		// 	id: Uuid::now_v7().to_string(),
-		// 	base: domain.base.clone(),
-		// 	frostCompatEnabled: false,
-		// 	securityPolicies: None,
-		// 	services: Vec::new(),
-		// 	gatekeeperManagedCerts: domain.gatekeeper_managed_certs,
-		// };
-
 		match self.db.NewServiceDomain(&domain).await {
 			Ok(success) => {
 				if success {

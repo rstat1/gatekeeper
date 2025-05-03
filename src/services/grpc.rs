@@ -96,6 +96,9 @@ impl ConfigService for GRPCServer {
 				let ca_chain = r.1.ca_chain.unwrap();
 				let x = ca_chain.iter().fold(String::new(), |acc, i| acc + "\n" + i);
 				let sc = ServiceCredentials { ca_cert: x, certificate: r.1.certificate, expires_at: r.1.expiration.unwrap_or(0), issuer_cert: r.1.issuing_ca, private_key: r.1.private_key };
+
+				self.svcRegistryImpl.AddServiceToKnownList(&svc.svc_details.as_ref().unwrap());
+
 				Ok(Response::new(NewServiceResponse { id: r.0, cert: Some(sc) }))
 			}
 			Err(e) => {

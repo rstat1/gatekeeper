@@ -53,10 +53,10 @@ struct RegisteredEndpoint {
 
 pub struct EndpointManagerImpl {
 	domains: Vec<ServiceDomain>,
-	_db: Arc<data::DataStore>,
 	gkCert: Arc<VaultCertificate>,
-	svcsList: Vec<Service>,
+	svcsList: Mutex<Vec<Service>>,
 	epMap: Mutex<HashMap<String, Vec<RegisteredEndpoint>>>,
+	aliasToSvc: HashMap<String, String>,
 }
 
 impl Display for RegisteredEndpoint {
@@ -85,9 +85,16 @@ impl<T> RemoveElem<T> for Vec<T> {
 
 impl EndpointManagerImpl {
 	pub async fn new(data: Arc<data::DataStore>, svcsList: Vec<Service>, healthPingInterval: Option<u64>, gkCert: Arc<VaultCertificate>) -> Result<Arc<Self>, String> {
+		let mut aliasToSvc: HashMap<String, String> = HashMap::default();
 		match data.GetDomains().await {
 			Ok(d) => {
-				let epmgr = Arc::new(EndpointManagerImpl { _db: data, svcsList, domains: Vec::from(d), epMap: Mutex::new(HashMap::new()), gkCert });
+				for svc in &svcsList {
+					for alias in &svc.route_aliases {
+						aliasToSvc.insert(alias.alias.clone(), svc.name.clone());
+					}
+				}
+
+				let epmgr = Arc::new(EndpointManagerImpl { svcsList: Mutex::new(svcsList), domains: Vec::from(d), epMap: Mutex::new(HashMap::new()), gkCert, aliasToSvc });
 				epmgr.startHealthCheck(healthPingInterval.unwrap_or(300));
 				Ok(epmgr)
 			}
@@ -105,11 +112,32 @@ impl EndpointManagerImpl {
 		false
 	}
 
+	pub fn IsValidService(&self, svcName: &String) -> (bool, String) {
+		let svcs = self.svcsList.try_lock();
+		match svcs {
+			Ok(svcList) => {
+				if svcList.iter().any(|s| s.name == *svcName) {
+					(true, "".to_string())
+				} else if self.aliasToSvc.contains_key(svcName) {
+					(true, self.aliasToSvc[svcName].clone())
+				} else {
+					(false, "".to_string())
+				}
+			}
+			Err(_) => todo!(),
+		}
+	}
+
 	pub fn RegisterServiceEndpoint(&self, request: &NewServiceEndpoint) -> Result<bool, String> {
 		let epMap = self.epMap.try_lock();
-
-		if !self.svcsList.iter().any(|s| s.name == request.service_name) {
-			return Err("unknown service".to_string());
+		let svcs = self.svcsList.try_lock();
+		match svcs {
+			Ok(svcList) => {
+				if !svcList.iter().any(|s| s.name == request.service_name) {
+					return Err("unknown service".to_string());
+				}
+			}
+			Err(_) => todo!(),
 		}
 
 		match epMap {
@@ -152,8 +180,14 @@ impl EndpointManagerImpl {
 			return Err("one or more arguments are invalid".to_string());
 		}
 
-		if !self.svcsList.iter().any(|s| &s.name == service_name) {
-			return Err("unknown service".to_string());
+		let svcs = self.svcsList.try_lock();
+		match svcs {
+			Ok(svcList) => {
+				if !svcList.iter().any(|s| s.name == *service_name) {
+					return Err("unknown service".to_string());
+				}
+			}
+			Err(_) => todo!(),
 		}
 
 		match epMap {
@@ -224,6 +258,18 @@ impl EndpointManagerImpl {
 			}
 		}
 	}
+	pub fn AddServiceToKnownList(&self, newSvc: &Service) {
+		let svcs = self.svcsList.try_lock();
+		match svcs {
+			Ok(mut svcList) => {
+				if !svcList.contains(newSvc) {
+					svcList.push(newSvc.clone());
+				}
+			}
+			Err(e) => error!("{:?}", e),
+		}
+	}
+
 	fn startHealthCheck(self: &Arc<Self>, ttl: u64) {
 		let hc = Arc::new(HealthChecker { client: Arc::clone(&self) });
 		hc.StartHealthCheck(ttl, self.gkCert.clone());

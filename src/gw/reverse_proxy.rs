@@ -82,6 +82,16 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 	async fn early_request_filter(&self, session: &mut Session, _ctx: &mut Self::CTX) -> Result<()> {
 		let mut uri: Uri;
 
+		if session.is_http2() {
+			uri = session.as_http2().unwrap().req_header().uri.clone();
+		} else {
+			let host = session.get_header("Host").unwrap().to_str().unwrap().to_string();
+			let path = session.req_header().uri.clone().to_string();
+			let uriStr = format!("{}{}{}", "https://", host, path);
+			uri = uriStr.parse().unwrap();
+		}
+		let urlParts: Vec<&str> = uri.path().split("/").collect::<Vec<&str>>();
+
 		if let Some(isGRPCWeb) = session.get_header("content-type") {
 			if isGRPCWeb.to_str().unwrap().to_string().starts_with("application/grpc-web") {
 				let grpcWeb = session.downstream_modules_ctx.get_mut::<GrpcWebBridge>().expect("grpc-web module added");
@@ -89,22 +99,16 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 			}
 		}
 
-		if session.is_http2() {
-			uri = session.as_http2().unwrap().req_header().uri.clone();
-		} else {
-			let host = session.get_header("Host").unwrap().to_str().unwrap().to_string();
-			let path = session.req_header().uri.clone().to_string();
+		let host = uri.authority().unwrap().to_string();
+		let hostParts: Vec<&str> = host.splitn(2, ".").collect();
+		let mut base = hostParts[1].to_string();
 
-			let uriStr = format!("{}{}{}", "https://", host, path);
-			debug!("{}", uriStr);
-			uri = uriStr.parse().unwrap();
-		}
-
-		if uri.path().starts_with("/rpc") {
-			let grpcTranscode = session.downstream_modules_ctx.get_mut::<GRPCTranscoder>().expect("grpc-transcode module added");
-
-			let urlParts = uri.path().split("/").collect::<Vec<&str>>();
-			grpcTranscode.init(urlParts[2].to_string(), urlParts[3].to_string());
+		if self.epMgr.IsValidDomain(&base) {
+			let (valid, aliasedService) = self.epMgr.IsValidService(&hostParts[0].to_string());
+			if valid && uri.path().starts_with("/rpc") {
+				let grpcTranscode = session.downstream_modules_ctx.get_mut::<GRPCTranscoder>().expect("grpc-transcode module added");
+				grpcTranscode.init(urlParts[2].to_string(), urlParts[3].to_string());
+			}
 		}
 
 		Ok(())
@@ -123,9 +127,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 		} else {
 			let host = session.get_header("Host").unwrap().to_str().unwrap().to_string();
 			let path = session.req_header().uri.clone().to_string();
-
 			let uriStr = format!("{}{}{}", "https://", host, path);
-			debug!("{}", uriStr);
 			uri = uriStr.parse().unwrap();
 			ctx.authority = uri.authority().unwrap().as_str().to_string();
 		}
@@ -146,9 +148,10 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 			return Ok(false);
 		}
 
+		let pathParts = uri.path().split("/").collect::<Vec<&str>>();
 		let host = uri.authority().unwrap().to_string();
-		let urlParts: Vec<&str> = host.splitn(2, ".").collect();
-		let mut base = urlParts[1].to_string();
+		let hostParts: Vec<&str> = host.splitn(2, ".").collect();
+		let mut base = hostParts[1].to_string();
 
 		let port = uri.port();
 		if let Some(port) = port {
@@ -156,35 +159,31 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 		}
 
 		ctx.base = base.clone();
-		ctx.service = urlParts[0].to_string();
+		ctx.service = hostParts[0].to_string();
 
 		if ctx.isGRPCService {
 			ctx.grpcService = uri.path().split("/").collect::<Vec<&str>>()[1].to_string();
 		}
 
 		if uri.path().starts_with("/rpc") {
-			let mut newUri: String;
-			newUri = format!("https://{}{}", ctx.authority, uri.path().strip_prefix("/rpc").unwrap());
-			debug!("newUri = {}", newUri);
-
-			session.req_header_mut().set_uri(newUri.parse().unwrap());
-
+			session
+				.req_header_mut()
+				.set_uri(format!("https://{}{}", ctx.authority, uri.path().strip_prefix("/rpc").unwrap()).parse().unwrap());
 			session.req_header_mut().insert_header("content-type", "application/grpc");
 			session.req_header_mut().insert_header("te", "trailers");
 			session.req_header_mut().remove_header("accept");
 			session.req_header_mut().set_method(Method::POST);
 			session.req_header_mut().set_send_end_stream(false);
 
-			let urlParts = uri.path().split("/").collect::<Vec<&str>>();
 			ctx.isGRPCService = true;
 			ctx.isHTTPToRPCRequest = true;
-			ctx.grpcService = urlParts[2].to_string();
-			ctx.grpcMethodToCall = Some(urlParts[3].to_string());
+			ctx.grpcService = pathParts[2].to_string();
+			ctx.grpcMethodToCall = Some(pathParts[3].to_string());
 			debug!("grpcMethodToCall: {:?}", ctx.grpcMethodToCall);
 		}
 
 		if self.epMgr.IsValidDomain(&base) {
-			let (valid, aliasedService) = self.is_valid_service(&urlParts[0].to_string());
+			let (valid, aliasedService) = self.epMgr.IsValidService(&hostParts[0].to_string());
 			if valid {
 				if aliasedService != "" {
 					ctx.service = aliasedService;
@@ -193,7 +192,8 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 			}
 		}
 
-		let h = ResponseHeader::build(404, None).unwrap();
+		let mut h = ResponseHeader::build(404, None).unwrap();
+		h.insert_header("content-type", "text/html");
 		session.write_response_header(Box::new(h), true).await?;
 		session
 			.write_response_body(Some(Bytes::from(String::into_bytes(not_found_error(format!("{}.{}", ctx.service, ctx.base))))), true)
@@ -298,7 +298,8 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 				Ok(peer)
 			}
 		} else {
-			let h = ResponseHeader::build(503, None).unwrap();
+			let mut h = ResponseHeader::build(503, None).unwrap();
+			h.insert_header("content-type", "text/html");
 			session.write_response_header(Box::new(h), true).await?;
 			session.write_response_body(Some(Bytes::from(String::into_bytes(no_endpoint_err()))), true).await?;
 			session.set_keepalive(None);

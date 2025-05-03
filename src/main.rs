@@ -142,7 +142,6 @@ fn main() {
 		&server.configuration,
 		ReverseProxy::new(
 			srImpl.clone(),
-			svcsList,
 			&conf.staticFileServerAddr.unwrap_or("0.0.0.0:10000".to_string()),
 			&apiServiceCert,
 			&conf.devAuthServerAddr.unwrap_or("0.0.0.0:10001".to_string()),

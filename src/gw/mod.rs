@@ -18,46 +18,29 @@ use std::sync::Arc;
 use tonic::async_trait;
 use tracing::{debug, error};
 
-use crate::{data::DataStore, services::endpoint_manager::EndpointManagerImpl, vault::Certificate, services::v1::{Alias, Service}};
+use crate::{
+	data::DataStore,
+	services::endpoint_manager::EndpointManagerImpl,
+	services::v1::{Alias, Service},
+	vault::Certificate,
+};
 
 const DEVICE_API_CONTENT_TYPE: &str = "application/x-gatekeeper-device-api";
 
-pub mod reverse_proxy;
 pub mod grpc_transcoder;
+pub mod reverse_proxy;
 
 pub struct DynamicCert;
 pub struct ReverseProxy {
-	svcNames: Vec<String>,
 	grpcCert: Certificate,
 	staticFileServerAddr: String,
 	deviceAuthServerAddr: String,
 	epMgr: Arc<EndpointManagerImpl>,
-	aliasToSvc: HashMap<String, String>,
 }
 
 impl ReverseProxy {
-	pub fn new(epMgr: Arc<EndpointManagerImpl>, svcs: Vec<Service>, staticFileServerAddr: &String, gkCert: &Certificate, deviceAuthServerAddr: &String) -> Self {
-		let mut svcNames: Vec<String> = Vec::default();
-		let mut aliasToSvc: HashMap<String, String> = HashMap::default();
-
-		for svc in svcs {
-			svcNames.push(svc.name.clone());
-			for alias in svc.route_aliases {
-				aliasToSvc.insert(alias.alias, svc.name.clone());
-			}
-		}
-
-		ReverseProxy { epMgr, svcNames, aliasToSvc, staticFileServerAddr: staticFileServerAddr.clone(), grpcCert: gkCert.clone(), deviceAuthServerAddr: deviceAuthServerAddr.clone() }
-	}
-
-	pub(super) fn is_valid_service(&self, svc: &String) -> (bool, String) {
-		if self.svcNames.contains(svc) {
-			(true, "".to_string())
-		} else if self.aliasToSvc.contains_key(svc) {
-			(true, self.aliasToSvc[svc].clone())
-		} else {
-			(false, "".to_string())
-		}
+	pub fn new(epMgr: Arc<EndpointManagerImpl>, staticFileServerAddr: &String, gkCert: &Certificate, deviceAuthServerAddr: &String) -> Self {
+		ReverseProxy { epMgr, staticFileServerAddr: staticFileServerAddr.clone(), grpcCert: gkCert.clone(), deviceAuthServerAddr: deviceAuthServerAddr.clone() }
 	}
 }
 

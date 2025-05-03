@@ -7,7 +7,7 @@
 
 use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use http::StatusCode;
+use http::{HeaderMap, StatusCode};
 use pingora::modules::http::{HttpModule, HttpModuleBuilder, Module};
 use pingora_core::Result;
 use pingora_http::ResponseHeader;
@@ -26,6 +26,7 @@ pub struct GRPCTranscoder {
 	method: String,
 	outputMessageType: String,
 	descriptorPool: DescriptorPool,
+	wroteResponse: bool,
 }
 
 impl GRPCTranscoder {
@@ -118,6 +119,7 @@ impl HttpModule for GRPCTranscoder {
 							error!("{:?}", e);
 						}
 					}
+					self.wroteResponse = true;
 				} else {
 					error!("no method descriptor");
 				}
@@ -137,10 +139,15 @@ impl HttpModule for GRPCTranscoder {
 		Ok(())
 	}
 	async fn response_header_filter(&mut self, resp: &mut ResponseHeader, _end_of_stream: bool) -> Result<()> {
-		resp.insert_header("content-type", "application/json");
+		debug!("response_header_filter {} {:?}", self.currentMaxLen, resp.get_reason_phrase());
 		if let Some(grpcStatus) = resp.headers.get("Grpc-Status") {
 			if grpcStatus.to_str().unwrap() != "0" {
 				resp.set_status(StatusCode::INTERNAL_SERVER_ERROR);
+			}
+		} 
+		if let Some(respReason) = resp.get_reason_phrase() {
+			if respReason == "OK" {
+				resp.insert_header("content-type", "application/json");
 			}
 		}
 		Ok(())
