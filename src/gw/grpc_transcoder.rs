@@ -88,16 +88,12 @@ impl HttpModule for GRPCTranscoder {
 			self.outputMessageType = method.output().full_name().to_string();
 		}
 
-		if (end_of_stream) {
-			debug!("reached eos")
-		}
-
 		Ok(())
 	}
 
 	fn response_body_filter(&mut self, body: &mut Option<Bytes>, end_of_stream: bool) -> Result<()> {
 		if (end_of_stream) {
-			info!("end of stream time to get to work on a {} buffer", self.currentMaxLen);
+			debug!("end of stream time to get to work on a {} buffer", self.currentMaxLen);
 			if self.currentMaxLen > 0 {
 				let md = self
 					.descriptorPool
