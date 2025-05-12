@@ -6,6 +6,7 @@
 */
 
 use base64::{alphabet, engine, engine::general_purpose, Engine};
+use chrono::Utc;
 use http_body_util::{BodyExt, Full};
 use instant_acme::{Account, AccountCredentials, BytesResponse, ChallengeType, ExternalAccountKey, HttpClient, Identifier, NewAccount, NewOrder};
 use p384::{
@@ -158,6 +159,19 @@ impl CertManagerSvc {
 				Err(e) => Err(format!("Pem error: {}", e.to_string())),
 			},
 			Err(e) => Err(format!("GetExistingServiceCert error: {e}")),
+		}
+	}
+	pub async fn IsCertificateExpired(&self, serviceName: String) -> Result<bool, String> {
+		match self.GetExistingServiceCert(serviceName).await {
+			Ok(c) => {
+				let currentTime: u64 = Utc::now().timestamp().try_into().unwrap();
+				let certExpireTime: u64 = c.expiration.unwrap_or_default();
+
+				debug!("current time: {currentTime}, certExpireTime: {certExpireTime}");
+
+				Ok(currentTime > certExpireTime)
+			}
+			Err(e) => Err(e),
 		}
 	}
 	pub async fn GenerateACMECert(&self, serviceName: &String) -> Result<bool, String> {

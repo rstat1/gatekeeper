@@ -10,6 +10,7 @@
 #![allow(nonstandard_style)]
 
 use pingora::{listeners::tls::TlsSettings, prelude::*, services::listening::Service as ListeningService};
+use tracing::warn;
 use std::{fs, path::Path, sync::Arc};
 use tracing::{debug, info};
 
@@ -106,6 +107,19 @@ fn main() {
 	let mut tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
 	tls_settings.enable_h2();
 	// tls_settings.enable_ocsp_stapling();
+
+	let async_check_cert_expiry = async { cmSvc.IsCertificateExpired("gatekeeper".to_string()).await };
+	match rt.block_on(async_check_cert_expiry) {
+		Ok(ac) => {
+			if ac {
+				warn!("gatekeeper API service cert has expired, forcing renewal...");
+				let _ = fs::remove_file("certs/svcs/gatekeeper.cert");
+			}
+		}
+		Err(e) => {
+			panic!("cert expiry check failed: {}", e)
+		}
+	}
 
 	let certPath = Path::new("certs/svcs/gatekeeper.cert");
 

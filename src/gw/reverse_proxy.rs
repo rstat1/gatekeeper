@@ -299,7 +299,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 				let caRoot = X509::from_pem(&Bytes::from(caChain[1].clone())).unwrap();
 
 				let key = PKey::private_key_from_pem(&Bytes::from(self.grpcCert.private_key.clone())).unwrap();
-				let mut peer = HttpPeer::new(serviceEP, false, "".to_string()); //true, ctx.service.clone());
+				let mut peer = HttpPeer::new(serviceEP, true, ctx.service.clone());
 				let mut peerOpts = PeerOptions::new();
 
 				peer.client_cert_key = Some(Arc::new(CertKey::new(vec![cert], key)));
@@ -308,8 +308,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 				peerOpts.ca = Some(Arc::new(Box::new([caInt.clone(), caRoot.clone()])));
 				peer.options = peerOpts;
 
-				let peer = Box::new(HttpPeer::new(serviceEP, false, "".to_string()));
-				Ok(peer)
+				Ok(Box::new(peer))
 			} else {
 				let peer = Box::new(HttpPeer::new(serviceEP, false, "".to_string()));
 				Ok(peer)
