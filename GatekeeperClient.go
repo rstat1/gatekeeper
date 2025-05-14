@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"errors"
 	"os"
 	"regexp"
@@ -14,18 +13,21 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	v1 "go.alargerobot.dev/gatekeeper/sdk/rpc/endpoint_manager/v1"
+	cs "go.alargerobot.dev/gatekeeper/sdk/rpc/config/v1"
+	ep "go.alargerobot.dev/gatekeeper/sdk/rpc/endpoint_manager/v1"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type GatekeeperClient struct {
 	config          GatekeeperClientConfig
 	grpcClient      *grpc.ClientConn
-	endpointManager v1.EndpointManagerClient
+	configService   cs.ConfigServiceClient
+	endpointManager ep.EndpointManagerClient
 	epsServer       *endpointServicesServer
-	gkCreds         GatekeeperCredentials
+	credentials     cs.NewServiceResponse
 	logger          *logrus.Logger
 }
 
@@ -45,16 +47,16 @@ type DeviceAuthClientResponse struct {
 	RequestID string `json:"requestID"`
 }
 
-type GatekeeperCredentials struct {
-	Id   string `json:"id"`
-	Cert struct {
-		CACert      string `json:"ca_cert"`
-		Certificate string `json:"certificate"`
-		ExpiresAt   string `json:"expiresAt"`
-		IssuerCert  string `json:"issuerCert"`
-		PrivateKey  string `json:"private_key"`
-	} `json:"cert"`
-}
+// type GatekeeperCredentials struct {
+// 	Id   string `json:"id"`
+// 	Cert struct {
+// 		CACert      string `json:"ca_cert"`
+// 		Certificate string `json:"certificate"`
+// 		ExpiresAt   string `json:"expiresAt"`
+// 		IssuerCert  string `json:"issuerCert"`
+// 		PrivateKey  string `json:"private_key"`
+// 	} `json:"cert"`
+// }
 
 // # Description
 //
@@ -71,8 +73,8 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 	if e != nil {
 		panic(e)
 	}
-	var gkCreds GatekeeperCredentials
-	e = json.Unmarshal(creds, &gkCreds)
+	var gkCreds cs.NewServiceResponse
+	e = protojson.Unmarshal(creds, &gkCreds)
 	if e != nil {
 		panic(e)
 	}
@@ -83,7 +85,7 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 	}
 
 	ca := x509.NewCertPool()
-	caFile := []byte(gkCreds.Cert.CACert)
+	caFile := []byte(gkCreds.Cert.CaCert)
 
 	ca.AppendCertsFromPEM(caFile)
 
@@ -105,23 +107,26 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 		epsServer:       ess,
 		config:          config,
 		grpcClient:      grpcClient,
-		gkCreds:         gkCreds,
-		endpointManager: v1.NewEndpointManagerClient(grpcClient),
+		credentials:     gkCreds,
+		configService:   cs.NewConfigServiceClient(grpcClient),
+		endpointManager: ep.NewEndpointManagerClient(grpcClient),
 	}
 
 	gkc.logger = logrus.New()
 	gkc.logger.Out = os.Stderr
 	gkc.logger.SetLevel(logrus.DebugLevel)
 
-	expTime, err := strconv.Atoi(gkCreds.Cert.ExpiresAt)
-	gkc.LogInfo("now", time.Now().UTC().AddDate(0, 0, 5).Unix(), time.Unix(int64(expTime), 0).Format("2006-01-02 15:04:05 MST"))
+	expTime := gkCreds.Cert.ExpiresAt
 
 	if time.Now().UTC().AddDate(0, 0, 5).Unix() == int64(expTime) {
 		gkc.LogInfo("", "", "renew credentials...")
+		gkc.renewCredentials()
 	} else if time.Now().UTC().Unix() == int64(expTime) {
 		gkc.LogInfo("", "", "renew credentials...")
+		gkc.renewCredentials()
 	} else if time.Now().UTC().Unix() > int64(expTime) {
 		gkc.LogInfo("", "", "renew credentials...")
+		gkc.renewCredentials()
 	}
 
 	go gkc.certRenewTimer()
@@ -154,7 +159,7 @@ func (gc *GatekeeperClient) registerEPInternal(serviceName, endpointName, addres
 		return errors.New("invalid address specified. address format is: <ip-address:port>")
 	}
 
-	_, e := gc.endpointManager.RegisterServiceEndpoint(context.Background(), &v1.NewServiceEndpoint{
+	_, e := gc.endpointManager.RegisterServiceEndpoint(context.Background(), &ep.NewServiceEndpoint{
 		Tags:             tags,
 		Endpoint:         address,
 		ServiceName:      serviceName,
@@ -176,20 +181,30 @@ func (gc *GatekeeperClient) LogInfo(extraKey string, extraValue interface{}, ent
 	}
 }
 func (gc *GatekeeperClient) certRenewTimer() {
-	expTime, err := strconv.Atoi(gc.gkCreds.Cert.ExpiresAt)
 	for {
 		gc.LogInfo("", "", "starting credential renewal timer...")
 		<-time.Tick(24 * time.Hour)
-		if err != nil {
-			panic(err)
-		}
 
-		if time.Now().UTC().AddDate(0, 0, 5).Unix() == int64(expTime) {
+		if time.Now().UTC().AddDate(0, 0, 5).Unix() == int64(gc.credentials.Cert.ExpiresAt) {
 			gc.LogInfo("", "", "renew credentials...")
-		} else if time.Now().UTC().Unix() == int64(expTime) {
+			gc.renewCredentials()
+		} else if time.Now().UTC().Unix() == int64(gc.credentials.Cert.ExpiresAt) {
 			gc.LogInfo("", "", "renew credentials...")
-		} else if time.Now().UTC().Unix() > int64(expTime) {
+			gc.renewCredentials()
+		} else if time.Now().UTC().Unix() > int64(gc.credentials.Cert.ExpiresAt) {
 			gc.LogInfo("", "", "renew credentials...")
+			gc.renewCredentials()
+		}
+	}
+}
+
+func (gc *GatekeeperClient) renewCredentials() {
+	if r, e := gc.configService.RequestCertRenewal(context.Background(), &cs.ID{Id: gc.credentials.Id}); e == nil {
+		gc.credentials = *r
+		newCreds, _ := protojson.Marshal(r)
+		e = os.WriteFile("gatekeeper-credentials.json", newCreds, 0o600)
+		if e != nil {
+			panic(e)
 		}
 	}
 }

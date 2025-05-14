@@ -1,0 +1,75 @@
+syntax = "proto3";
+package gatekeeper.config.v1;
+option go_package = "/config/v1";
+
+import "types.proto";
+
+message ID {
+    string id = 1;
+}
+
+message Alias {
+    string alias = 1;
+	string route = 2;
+}
+
+message ServiceDomain {
+    string base = 1;
+    repeated string services = 2;
+    repeated string domainSecurityPolicies = 3;
+    bool gatekeeperManagedCerts = 4;
+    string id = 5;
+}    
+message Service {
+    string name = 1;
+    bool internal = 2;
+    bool isFrostService = 3;
+    repeated string securityPolicies = 5;
+    string id = 6;
+    bool allowsExternalDeviceLogin = 7;
+    bool enableGRPCGateway = 8;
+    repeated Alias routeAliases = 9;
+}
+message ServiceCredentials {
+    string ca_cert = 1;
+    string certificate = 2;
+    uint64 expiresAt = 3;
+    string issuerCert = 4;
+    string private_key = 5;
+}
+
+message NewServiceRequest {
+    Service svcDetails = 1;
+    string parentServiceDomain = 2;
+}
+message NewServiceResponse {
+    string id = 1;
+    ServiceCredentials cert = 2;
+}    
+message NewDomainRequest {
+    ServiceDomain domain = 1;
+}    
+message ByNameRequest {
+    string name = 1;
+}
+message AliasRequest {
+    string ID = 1;
+    string alias = 2;
+    string route = 3;
+}
+
+service ConfigService {
+    rpc NewService(NewServiceRequest) returns (NewServiceResponse);
+    rpc NewServiceDomain(NewDomainRequest) returns (ID);
+    rpc NewRouteAlias(AliasRequest) returns (gatekeeper.services.types.Empty);
+
+    rpc GetServiceByID(ID) returns (Service);
+    rpc GetDomainByID(ID) returns (ServiceDomain);    
+    rpc GetDomainByName(ByNameRequest) returns (ServiceDomain);
+    rpc GetServiceByName(ByNameRequest) returns (Service);
+
+    rpc DeleteDomain(ID) returns (gatekeeper.services.types.Empty);
+    rpc DeleteService(ID) returns (gatekeeper.services.types.Empty);
+
+    rpc RequestCertRenewal(ID) returns (NewServiceResponse);
+}
