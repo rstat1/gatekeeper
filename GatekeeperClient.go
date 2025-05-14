@@ -34,6 +34,7 @@ type GatekeeperClient struct {
 type GatekeeperClientConfig struct {
 	GatekeeperAPIAddress string
 	EndpointServicesPort int
+	CredentialsRenewedHandler func()
 }
 
 type DeviceAuthRequest struct {
@@ -47,17 +48,6 @@ type DeviceAuthClientResponse struct {
 	RequestID string `json:"requestID"`
 }
 
-// type GatekeeperCredentials struct {
-// 	Id   string `json:"id"`
-// 	Cert struct {
-// 		CACert      string `json:"ca_cert"`
-// 		Certificate string `json:"certificate"`
-// 		ExpiresAt   string `json:"expiresAt"`
-// 		IssuerCert  string `json:"issuerCert"`
-// 		PrivateKey  string `json:"private_key"`
-// 	} `json:"cert"`
-// }
-
 // # Description
 //
 // NewGatekeeperClient initializes the gRPC client reponsible for commuicating with Gatekeeper and
@@ -69,11 +59,12 @@ type DeviceAuthClientResponse struct {
 // service creation, be present in the same directory as the service binary. These credentials
 // should be saved completely unmodified, in a in a JSON file named "gatekeeper-credentials.json",
 func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
+	var gkCreds cs.NewServiceResponse
+	
 	creds, e := os.ReadFile("gatekeeper-credentials.json")
 	if e != nil {
 		panic(e)
 	}
-	var gkCreds cs.NewServiceResponse
 	e = protojson.Unmarshal(creds, &gkCreds)
 	if e != nil {
 		panic(e)
@@ -206,5 +197,6 @@ func (gc *GatekeeperClient) renewCredentials() {
 		if e != nil {
 			panic(e)
 		}
+		gc.config.CredentialsRenewedHandler()
 	}
 }
