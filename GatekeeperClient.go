@@ -188,7 +188,6 @@ func (gc *GatekeeperClient) certRenewTimer() {
 		} else if time.Now().UTC().Unix() == int64(expTime) {
 			gc.LogInfo("", "", "renew credentials...")
 		} else if time.Now().UTC().Unix() > int64(expTime) {
-			``
 			gc.LogInfo("", "", "renew credentials...")
 		}
 	}
