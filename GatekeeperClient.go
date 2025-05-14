@@ -113,6 +113,16 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 	gkc.logger.Out = os.Stderr
 	gkc.logger.SetLevel(logrus.DebugLevel)
 
+	expTime, err := strconv.Atoi(gkCreds.Cert.ExpiresAt)
+
+	if time.Now().UTC().AddDate(0, 0, 5).Unix() == int64(expTime) {
+		gkc.LogInfo("", "", "renew credentials...")
+	} else if time.Now().UTC().Unix() == int64(expTime) {
+		gkc.LogInfo("", "", "renew credentials...")
+	} else if time.Now().UTC().Unix() > int64(expTime) {
+		gkc.LogInfo("", "", "renew credentials...")
+	}
+
 	go gkc.certRenewTimer()
 
 	return gkc
@@ -178,6 +188,7 @@ func (gc *GatekeeperClient) certRenewTimer() {
 		} else if time.Now().UTC().Unix() == int64(expTime) {
 			gc.LogInfo("", "", "renew credentials...")
 		} else if time.Now().UTC().Unix() > int64(expTime) {
+			``
 			gc.LogInfo("", "", "renew credentials...")
 		}
 	}
