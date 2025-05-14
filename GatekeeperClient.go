@@ -114,6 +114,7 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 	gkc.logger.SetLevel(logrus.DebugLevel)
 
 	expTime, err := strconv.Atoi(gkCreds.Cert.ExpiresAt)
+	gkc.LogInfo("now", time.Now().UTC().AddDate(0, 0, 5).Unix(), time.Unix(int64(expTime), 0).Format("2006-01-02 15:04:05 MST"))
 
 	if time.Now().UTC().AddDate(0, 0, 5).Unix() == int64(expTime) {
 		gkc.LogInfo("", "", "renew credentials...")
