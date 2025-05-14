@@ -10,7 +10,7 @@ use uuid::Uuid;
 use super::{cert_svc::CertManagerSvc, v1::*};
 use crate::{
 	data::DataStore,
-	services::v1::{ServiceDomain, Service},
+	services::v1::{Service, ServiceDomain},
 	vault::Certificate,
 };
 use std::sync::Arc;
@@ -110,5 +110,15 @@ impl ConfigServiceImpl {
 	}
 	pub async fn DeleteService(&self, id: &String) -> Result<bool, String> {
 		self.db.DeleteService(id).await.map_err(|e| String::from(e.to_string()))
+	}
+	pub async fn RenewServiceCredentials(&self, name: &String) -> Result<ServiceCredentials, String> {
+		match self.certMgr.GenerateServiceCert(name).await {
+			Ok(c) => {
+				let ca_chain = c.ca_chain.unwrap();
+				let x = ca_chain.iter().fold(String::new(), |acc, i| acc + "\n" + i);
+				return Ok(ServiceCredentials { ca_cert: x, certificate: c.certificate, expires_at: c.expiration.unwrap_or(0), issuer_cert: c.issuing_ca, private_key: c.private_key });
+			}
+			Err(e) => return Err(e),
+		};
 	}
 }

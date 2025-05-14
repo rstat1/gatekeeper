@@ -166,7 +166,7 @@ fn main() {
 	std::thread::spawn(move || {
 		let grpcRT = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 		let grpcTask = async {
-			let addr = "0.0.0.0:2000".parse().unwrap();
+			let addr = conf.apiServerAddr.unwrap_or("0.0.0.0:2000".to_string()).parse().unwrap();
 			GRPCServer::InitAndServe(addr, srImpl.clone(), Arc::new(apiImpl), apiServiceCert.clone()).await;
 		};
 		grpcRT.block_on(grpcTask);

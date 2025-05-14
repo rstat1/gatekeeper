@@ -180,4 +180,13 @@ impl ConfigService for GRPCServer {
 			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
 		}
 	}
+	async fn request_cert_renewal(&self, request: Request<Id>) -> Result<Response<NewServiceResponse>, Status> {
+		match self.svcRegistryImpl.ServiceIdToName(&request.get_ref().id) {
+			Ok(name) => match self.apiSvcImpl.RenewServiceCredentials(&name).await {
+				Ok(newCreds) => Ok(Response::new(NewServiceResponse { id: request.get_ref().id.clone(), cert: Some(newCreds) })),
+				Err(_) => Err(Status::new(tonic::Code::Unknown, "nothing generated. invalid id?")),
+			},
+			Err(_) => Err(Status::new(tonic::Code::Unknown, "invalid id")),
+		}
+	}
 }

@@ -48,6 +48,7 @@ pub struct SystemConfiguration {
 	pub healthCheckInterval: Option<u64>,
 	pub staticFileServerAddr: Option<String>,
 	pub devAuthServerAddr: Option<String>,
+	pub apiServerAddr: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

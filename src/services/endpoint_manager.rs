@@ -128,6 +128,20 @@ impl EndpointManagerImpl {
 		}
 	}
 
+	pub fn ServiceIdToName(&self, id: &String) -> Result<String, bool> {
+		let svcs = self.svcsList.try_lock();
+		match svcs {
+			Ok(svcList) => {
+				if let Some(service) = svcList.iter().find(|s| *s.id == *id) {
+					Ok(service.name.clone())
+				} else {
+					Err(false)
+				}
+			}
+			Err(_) => Err(false),
+		}
+	}
+
 	pub fn IsRPCGatewayEnabled(&self, svcName: &String) -> bool {
 		let svcs = self.svcsList.try_lock();
 		match svcs {

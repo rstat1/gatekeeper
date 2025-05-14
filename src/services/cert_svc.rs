@@ -169,6 +169,11 @@ impl CertManagerSvc {
 
 				debug!("current time: {currentTime}, certExpireTime: {certExpireTime}");
 
+				let currentTimePlus5: u64 = Utc::now().checked_add_days(chrono::Days::new(5)).unwrap().timestamp().try_into().unwrap();
+				if currentTimePlus5 == certExpireTime || currentTimePlus5 > certExpireTime {
+					return Ok(true);
+				}
+
 				Ok(currentTime > certExpireTime)
 			}
 			Err(e) => Err(e),
