@@ -6,33 +6,33 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 )
 
 type endpointServicesServer struct {
 	isEDC    bool
 	deviceID string
+	gkc      *GatekeeperClient
 }
 
-func NewEndpointServiceServer(forClient bool, deviceID string) *endpointServicesServer {
+func NewEndpointServiceServer(forClient bool, deviceID string, gkc *GatekeeperClient) *endpointServicesServer {
 	return &endpointServicesServer{
+		gkc:      gkc,
 		isEDC:    forClient,
 		deviceID: deviceID,
 	}
 }
 
 func (ess *endpointServicesServer) ListenAndServe(port int) error {
-	cert, err := tls.LoadX509KeyPair(filepath.Base(os.Args[0])+".crt", filepath.Base(os.Args[0])+".key")
+	gkCreds := ess.gkc.GetCredentials()
+
+	ca := x509.NewCertPool()
+	ca.AppendCertsFromPEM([]byte(gkCreds.Cert.CaCert))
+
+	cert, err := tls.X509KeyPair([]byte(gkCreds.Cert.Certificate), []byte(gkCreds.Cert.PrivateKey))
 	if err != nil {
 		panic(err)
 	}
-
-	ca := x509.NewCertPool()
-	caFile, _ := os.ReadFile("gkca.pem")
-
-	ca.AppendCertsFromPEM(caFile)
 
 	tlsConf := tls.Config{
 		RootCAs:      ca,

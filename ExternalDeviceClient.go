@@ -46,14 +46,14 @@ type deviceRegistration struct {
 //   - endpointServicesAddr should be formated: <ip-address:port> and is the address/port that
 //     Gatekeeper will use the contact the client when necessary (currently just used for provisioning
 //     new certifcates when they expire).
-func NewExternalDeviceClient(serviceURL string, endpointServicesAddr string) *ExternalDeviceClient {
+func NewExternalDeviceClient(serviceURL string, endpointServicesAddr string, gkc *GatekeeperClient) *ExternalDeviceClient {
 	svcName := strings.Split(serviceURL, ".")[0]
 	deviceID := svcName + "-extdev-" + uuid.NewString()
 
 	edc := &ExternalDeviceClient{
 		serviceURL: serviceURL,
 		epsAddr:    endpointServicesAddr,
-		epsServer:  NewEndpointServiceServer(true, deviceID),
+		epsServer:  NewEndpointServiceServer(true, deviceID, gkc),
 	}
 
 	addrParts := strings.Split(endpointServicesAddr, ":")

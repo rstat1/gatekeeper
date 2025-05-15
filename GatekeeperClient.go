@@ -113,17 +113,15 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 		panic(e)
 	}
 
-	ess := NewEndpointServiceServer(false, "")
-	go ess.ListenAndServe(config.EndpointServicesPort)
-
 	gkc := &GatekeeperClient{
-		epsServer:       ess,
 		config:          config,
 		grpcClient:      grpcClient,
 		credentials:     gkCreds,
 		configService:   cs.NewConfigServiceClient(grpcClient),
 		endpointManager: ep.NewEndpointManagerClient(grpcClient),
 	}
+	gkc.epsServer = NewEndpointServiceServer(false, "", gkc)
+	go gkc.epsServer.ListenAndServe(config.EndpointServicesPort)
 
 	gkc.logger = logrus.New()
 	gkc.logger.Out = os.Stderr
