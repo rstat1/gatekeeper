@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
 	"regexp"
 	"runtime"
@@ -81,7 +82,7 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 
 	credsStr := string(creds)
 	if strings.HasPrefix(credsStr, "base64:") {
-		creds, e = base64.StdEncoding.DecodeString(credsStr[6:])
+		creds, e = base64.StdEncoding.DecodeString(credsStr[7:])
 		if e != nil {
 			panic(e)
 		}
