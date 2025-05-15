@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
 	cs "go.alargerobot.dev/gatekeeper/sdk/rpc/config/v1"
 	ep "go.alargerobot.dev/gatekeeper/sdk/rpc/endpoint_manager/v1"
@@ -33,9 +34,10 @@ type GatekeeperClient struct {
 }
 
 type GatekeeperClientConfig struct {
-	GatekeeperAPIAddress      string
-	EndpointServicesPort      int
-	CredentialsRenewedHandler func()
+	GatekeeperAPIAddress        string
+	EndpointServicesPort        int
+	CredentialsRenewedHandler   func()
+	ClientIsRunningOnKubernetes bool
 }
 
 type DeviceAuthRequest struct {
@@ -130,17 +132,21 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 	expTime := gkCreds.Cert.ExpiresAt
 
 	if time.Now().UTC().AddDate(0, 0, 5).Unix() == int64(expTime) {
-		gkc.LogInfo("", "", "renew credentials...")
+		gkc.logInfo("", "", "renew credentials...")
 		gkc.renewCredentials()
 	} else if time.Now().UTC().Unix() == int64(expTime) {
-		gkc.LogInfo("", "", "renew credentials...")
+		gkc.logInfo("", "", "renew credentials...")
 		gkc.renewCredentials()
 	} else if time.Now().UTC().Unix() > int64(expTime) {
-		gkc.LogInfo("", "", "renew credentials...")
+		gkc.logInfo("", "", "renew credentials...")
 		gkc.renewCredentials()
 	}
 
-	go gkc.certRenewTimer()
+	if config.ClientIsRunningOnKubernetes {
+		gkc.credsFileWatcher()
+	} else {
+		go gkc.certRenewTimer()
+	}
 
 	return gkc
 }
@@ -163,35 +169,9 @@ func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string,
 	return gc.registerEPInternal(serviceName, serviceName, address, tags)
 }
 
-func (gc *GatekeeperClient) GetCredentials() (gkCreds cs.NewServiceResponse) {
-	var e error
-	var credsFilePath string
-
-	if path, set := os.LookupEnv("CREDENTIALS_FILE_PATH"); set {
-		credsFilePath = path
-	} else {
-		credsFilePath = "gatekeeper-credentials.json"
-	}
-
-	creds, e := os.ReadFile(credsFilePath)
-	if e != nil {
-		panic(e)
-	}
-
-	credsStr := string(creds)
-	if strings.HasPrefix(credsStr, "base64:") {
-		creds, e = base64.StdEncoding.DecodeString(credsStr[6:])
-		if e != nil {
-			panic(e)
-		}
-	}
-
-	e = protojson.Unmarshal(creds, &gkCreds)
-	if e != nil {
-		panic(e)
-	}
-
-	return gkCreds
+// GetCredentials returns already loaded Gatekeeper credentials.
+func (gc *GatekeeperClient) GetCredentials() cs.NewServiceResponse {
+	return gc.credentials
 }
 
 func (gc *GatekeeperClient) registerEPInternal(serviceName, endpointName, address string, tags []string) error {
@@ -210,7 +190,7 @@ func (gc *GatekeeperClient) registerEPInternal(serviceName, endpointName, addres
 	})
 	return e
 }
-func (gc *GatekeeperClient) LogInfo(extraKey string, extraValue interface{}, entry interface{}) {
+func (gc *GatekeeperClient) logInfo(extraKey string, extraValue interface{}, entry interface{}) {
 	pc, _, line, _ := runtime.Caller(1)
 	funcObj := runtime.FuncForPC(pc)
 	runtimeFunc := regexp.MustCompile(`^.*\.(.*)$`)
@@ -222,32 +202,79 @@ func (gc *GatekeeperClient) LogInfo(extraKey string, extraValue interface{}, ent
 		gc.logger.WithFields(logrus.Fields{"func": name, "line": line}).Infoln(entry)
 	}
 }
+func (gc *GatekeeperClient) credsFileWatcher() {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		gc.logger.Fatalln(err)
+	}
+	defer watcher.Close()
+	err = watcher.Add(os.Getenv("CREDENTIALS_FILE_PATH"))
+	if err != nil {
+		gc.logger.Fatalln(err)
+		return
+	}
+	go func() {
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
+					gc.renewCredentials()
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				gc.logger.Fatalln(err)
+			}
+		}
+	}()
+
+}
 func (gc *GatekeeperClient) certRenewTimer() {
 	for {
-		gc.LogInfo("", "", "starting credential renewal timer...")
+		gc.logInfo("", "", "starting credential renewal timer...")
 		<-time.Tick(24 * time.Hour)
 
 		if time.Now().UTC().AddDate(0, 0, 5).Unix() == int64(gc.credentials.Cert.ExpiresAt) {
-			gc.LogInfo("", "", "renew credentials...")
+			gc.logInfo("", "", "renew credentials...")
 			gc.renewCredentials()
 		} else if time.Now().UTC().Unix() == int64(gc.credentials.Cert.ExpiresAt) {
-			gc.LogInfo("", "", "renew credentials...")
+			gc.logInfo("", "", "renew credentials...")
 			gc.renewCredentials()
 		} else if time.Now().UTC().Unix() > int64(gc.credentials.Cert.ExpiresAt) {
-			gc.LogInfo("", "", "renew credentials...")
+			gc.logInfo("", "", "renew credentials...")
 			gc.renewCredentials()
 		}
 	}
 }
 
 func (gc *GatekeeperClient) renewCredentials() {
-	if r, e := gc.configService.RequestCertRenewal(context.Background(), &cs.ID{Id: gc.credentials.Id}); e == nil {
-		gc.credentials = *r
-		newCreds, _ := protojson.Marshal(r)
-		e = os.WriteFile("gatekeeper-credentials.json", newCreds, 0o600)
+	if path, set := os.LookupEnv("CREDENTIALS_FILE_PATH"); set {
+		creds, e := os.ReadFile(path)
 		if e != nil {
 			panic(e)
 		}
-		gc.config.CredentialsRenewedHandler()
+		credsStr := string(creds)
+		creds, e = base64.StdEncoding.DecodeString(credsStr[6:])
+		if e != nil {
+			panic(e)
+		}
+		e = protojson.Unmarshal(creds, &gc.credentials)
+		if e != nil {
+			panic(e)
+		}
+	} else {
+		if r, e := gc.configService.RequestCertRenewal(context.Background(), &cs.ID{Id: gc.credentials.Id}); e == nil {
+			gc.credentials = *r
+			newCreds, _ := protojson.Marshal(r)
+			e = os.WriteFile("gatekeeper-credentials.json", newCreds, 0o600)
+			if e != nil {
+				panic(e)
+			}
+			gc.config.CredentialsRenewedHandler()
+		}
 	}
 }
