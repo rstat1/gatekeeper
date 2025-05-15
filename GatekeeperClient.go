@@ -178,12 +178,15 @@ func (gc *GatekeeperClient) registerEPInternal(serviceName, endpointName, addres
 		return errors.New("invalid address specified. address format is: <ip-address:port>")
 	}
 
+	hcrIP := addrParts[0]
+
 	if gc.config.ClientIsRunningOnKubernetes {
 		//ignore the value of address and replace with our own. Minus the port, we can keep the port.
 		actualIP, err := GetK8sServiceStatus(serviceName)
 		if err != nil {
 			panic(err)
 		}
+		hcrIP = actualIP
 		address = actualIP + ":" + addrParts[1]
 		gc.logInfo("newAddress", address, "running in a k8s pod, overriding provided outbound IP")
 	}
@@ -193,7 +196,7 @@ func (gc *GatekeeperClient) registerEPInternal(serviceName, endpointName, addres
 		Endpoint:         address,
 		ServiceName:      serviceName,
 		EndpointName:     endpointName,
-		HealthCheckRoute: "https://" + addrParts[0] + ":" + strconv.Itoa(gc.config.EndpointServicesPort) + "/ping",
+		HealthCheckRoute: "https://" + hcrIP + ":" + strconv.Itoa(gc.config.EndpointServicesPort) + "/ping",
 	})
 	return e
 }
