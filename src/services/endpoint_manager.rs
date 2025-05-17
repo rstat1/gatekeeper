@@ -21,6 +21,7 @@ use pingora::{
 };
 use pingora_core::upstreams::peer::HttpPeer;
 use pingora_http::RequestHeader;
+use uuid::Uuid;
 use std::{
 	collections::HashMap,
 	fmt::{Debug, Display},
@@ -49,6 +50,7 @@ struct RegisteredEndpoint {
 	pub healthCheckRoute: String,
 	pub deviceID: Option<String>,
 	pub serviceName: String,
+	pub epID: Option<String>,
 }
 
 pub struct EndpointManagerImpl {
@@ -178,6 +180,7 @@ impl EndpointManagerImpl {
 						healthCheckRoute: request.health_check_route.clone(),
 						isExternalDevice: false,
 						deviceID: None,
+						epID: Some(Uuid::now_v7().to_string()),
 					});
 				} else {
 					debug!("added new endpoint {} at {} with hcr {}", &request.endpoint_name, &request.endpoint, &request.health_check_route);
@@ -189,6 +192,7 @@ impl EndpointManagerImpl {
 							healthCheckRoute: request.health_check_route.clone(),
 							isExternalDevice: false,
 							deviceID: None,
+							epID: Some(Uuid::now_v7().to_string()),
 						}],
 					);
 				}
@@ -228,6 +232,7 @@ impl EndpointManagerImpl {
 						healthCheckRoute: "/ping".to_string(),
 						isExternalDevice: true,
 						deviceID: Some(deviceID),
+						epID: None,
 					});
 				} else {
 					debug!("added new endpoint {} at {} with hcr {}", &deviceID, &endpoint, "/ping".to_string());
@@ -239,6 +244,7 @@ impl EndpointManagerImpl {
 							healthCheckRoute: "/ping".to_string(),
 							isExternalDevice: true,
 							deviceID: Some(deviceID),
+							epID: None,
 						}],
 					);
 				}
@@ -355,7 +361,7 @@ impl HealthChecker {
 											if !rep.isExternalDevice {
 												if response_body != "pong" {
 													error!("incorrect response, adding endpoint '{key}' to removal list");
-													to_remove.push(rep.address.to_string());
+													to_remove.push(rep.epID.as_ref().unwrap().clone());
 												}
 											} else {
 												if let Some(devID) = &rep.deviceID {
@@ -368,7 +374,7 @@ impl HealthChecker {
 										}
 										Err(e) => {
 											error!("incorrect response, adding endpoint or device '{key}' to removal list: {:?}", e);
-											to_remove.push(rep.address.to_string());
+											to_remove.push(rep.epID.as_ref().unwrap_or(rep.deviceID.as_ref().unwrap_or(&"".to_string())).clone());
 										}
 									}
 								}
@@ -377,7 +383,7 @@ impl HealthChecker {
 										if e.isExternalDevice {
 											return addr == *e.deviceID.as_ref().unwrap_or(&"".to_string());
 										} else {
-											e.address.to_string() == addr
+											*e.epID.as_ref().unwrap() == addr
 										}
 									});
 								}

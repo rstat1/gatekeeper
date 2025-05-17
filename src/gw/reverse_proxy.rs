@@ -285,11 +285,11 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 			svcNameForLookup = ctx.service.clone();
 		}
 
-		info!("serving request to service: {}", svcNameForLookup);
+		debug!("serving request to service: {}", svcNameForLookup);
 
 		let serviceEP = self.epMgr.GetServiceEndpoint(&svcNameForLookup);
 		if let Some(serviceEP) = serviceEP {
-			info!("serving gRPC request {:?}", serviceEP);
+			debug!("serving gRPC request {:?}", serviceEP);
 			ctx.currentPeer = Some(serviceEP);
 			if ctx.isGRPCService {
 				let caChain = self.grpcCert.ca_chain.as_ref().unwrap();
