@@ -10,7 +10,7 @@ use uuid::Uuid;
 use super::{cert_svc::CertManagerSvc, v1::*};
 use crate::{
 	data::DataStore,
-	services::v1::{Service, ServiceDomain},
+	services::v1::{Namespace, Service},
 	vault::Certificate,
 };
 use std::sync::Arc;
@@ -31,9 +31,9 @@ impl ConfigServiceImpl {
 
 		let svcCert: Certificate;
 
-		match self.db.GetDomainByName(parentDomain).await {
+		match self.db.GetNamespaceByName(parentDomain).await {
 			Ok(Some(_)) => {
-				match self.certMgr.GenerateServiceCert(&svc.name).await {
+				match self.certMgr.GenerateServiceCert(&svc.name, false).await {
 					Ok(c) => svcCert = c,
 					Err(e) => return Err(e),
 				};
@@ -52,10 +52,10 @@ impl ConfigServiceImpl {
 			Err(e) => Err(e.to_string()),
 		}
 	}
-	pub async fn NewServiceDomain(&self, domain: &ServiceDomain) -> Result<String, String> {
+	pub async fn NewNamespace(&self, domain: &Namespace) -> Result<String, String> {
 		let mut domain = domain.clone();
 		domain.id = Uuid::now_v7().to_string();
-		match self.db.NewServiceDomain(&domain).await {
+		match self.db.NewNamespace(&domain).await {
 			Ok(success) => {
 				if success {
 					return Ok(domain.id);
@@ -91,28 +91,28 @@ impl ConfigServiceImpl {
 			Err(e) => Err(e.to_string()),
 		}
 	}
-	pub async fn GetDomainByName(&self, name: &String) -> Result<Option<ServiceDomain>, String> {
-		match self.db.GetDomainByName(name).await {
+	pub async fn GetNamespaceByName(&self, name: &String) -> Result<Option<Namespace>, String> {
+		match self.db.GetNamespaceByName(name).await {
 			Ok(Some(d)) => Ok(Some(d)),
 			Ok(None) => Ok(None),
 			Err(e) => Err(e.to_string()),
 		}
 	}
-	pub async fn GetDomainByID(&self, id: &String) -> Result<Option<ServiceDomain>, String> {
-		match self.db.GetDomainByID(id).await {
+	pub async fn GetNamespaceByID(&self, id: &String) -> Result<Option<Namespace>, String> {
+		match self.db.GetNamespaceByID(id).await {
 			Ok(Some(d)) => Ok(Some(d)),
 			Ok(None) => Ok(None),
 			Err(e) => Err(e.to_string()),
 		}
 	}
-	pub async fn DeleteDomain(&self, id: &String) -> Result<bool, String> {
+	pub async fn DeleteNamespace(&self, id: &String) -> Result<bool, String> {
 		self.db.DeleteDomain(id).await.map_err(|e| String::from(e.to_string()))
 	}
 	pub async fn DeleteService(&self, id: &String) -> Result<bool, String> {
 		self.db.DeleteService(id).await.map_err(|e| String::from(e.to_string()))
 	}
 	pub async fn RenewServiceCredentials(&self, name: &String) -> Result<ServiceCredentials, String> {
-		match self.certMgr.GenerateServiceCert(name).await {
+		match self.certMgr.GenerateServiceCert(name, false).await {
 			Ok(c) => {
 				let ca_chain = c.ca_chain.unwrap();
 				let x = ca_chain.iter().fold(String::new(), |acc, i| acc + "\n" + i);

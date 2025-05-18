@@ -18,7 +18,7 @@ use tokio::sync::RwLock;
 use tracing::error;
 
 use crate::{
-	services::v1::{Alias, Service, ServiceDomain},
+	services::v1::{Alias, Namespace, Service},
 	vault::VaultClient,
 };
 
@@ -84,7 +84,7 @@ impl DataStore {
 			Err(e) => Err(e),
 		}
 	}
-	pub async fn NewServiceDomain(&self, domain: &ServiceDomain) -> Result<bool, mongodb::error::Error> {
+	pub async fn NewNamespace(&self, domain: &Namespace) -> Result<bool, mongodb::error::Error> {
 		self.retryableQuery(|| async { self.insertUnique("servicedomains", domain, doc! {"base": &domain.base}, None).await })
 			.await
 	}
@@ -98,7 +98,7 @@ impl DataStore {
 			match self.insertUnique("services", svc, doc! {"name": &svc.name}, Some(&mut newSvcSession)).await {
 				Ok(r) => {
 					if r {
-						self.addServiceToDomain(&svc.name, parentDomain, &mut newSvcSession).await
+						self.addServiceToNamespace(&svc.name, parentDomain, &mut newSvcSession).await
 					} else {
 						Ok(false)
 					}
@@ -113,7 +113,7 @@ impl DataStore {
 	}
 	pub async fn AddRouteAliasToService(&self, id: &String, alias: &Alias) -> Result<bool, mongodb::error::Error> {
 		self.retryableQuery(|| async {
-			let coll: Collection<ServiceDomain> = self.client.read().await.database(&self.collectionName).collection::<ServiceDomain>("services");
+			let coll: Collection<Namespace> = self.client.read().await.database(&self.collectionName).collection::<Namespace>("services");
 			let svc = self.GetServiceByID(id).await;
 			match svc {
 				Ok(Some(s)) => {
@@ -132,9 +132,9 @@ impl DataStore {
 		})
 		.await
 	}
-	pub async fn GetDomainByName(&self, name: &String) -> Result<Option<ServiceDomain>, mongodb::error::Error> {
+	pub async fn GetNamespaceByName(&self, name: &String) -> Result<Option<Namespace>, mongodb::error::Error> {
 		self.retryableQuery(|| async {
-			let coll: Collection<ServiceDomain> = self.client.read().await.database(&self.collectionName).collection::<ServiceDomain>("servicedomains");
+			let coll: Collection<Namespace> = self.client.read().await.database(&self.collectionName).collection::<Namespace>("servicedomains");
 			let cursor = coll.find_one(doc! {"base": name}).await;
 			match cursor {
 				Ok(Some(sd)) => Ok(Some(sd)),
@@ -144,9 +144,9 @@ impl DataStore {
 		})
 		.await
 	}
-	pub async fn GetDomainByID(&self, id: &String) -> Result<Option<ServiceDomain>, mongodb::error::Error> {
+	pub async fn GetNamespaceByID(&self, id: &String) -> Result<Option<Namespace>, mongodb::error::Error> {
 		self.retryableQuery(|| async {
-			let coll: Collection<ServiceDomain> = self.client.read().await.database(&self.collectionName).collection::<ServiceDomain>("servicedomains");
+			let coll: Collection<Namespace> = self.client.read().await.database(&self.collectionName).collection::<Namespace>("servicedomains");
 			let cursor = coll.find_one(doc! {"id": id}).await;
 			match cursor {
 				Ok(Some(sd)) => Ok(Some(sd)),
@@ -156,10 +156,10 @@ impl DataStore {
 		})
 		.await
 	}
-	pub async fn GetDomainNames(&self) -> Result<Vec<String>, mongodb::error::Error> {
+	pub async fn GetNamespaceNames(&self) -> Result<Vec<String>, mongodb::error::Error> {
 		self.retryableQuery(|| async {
-			let serviceDomainsColl: Collection<ServiceDomain> = self.client.read().await.database(&self.collectionName).collection("servicedomains");
-			let cursor = serviceDomainsColl.find(doc! {}).await; //.run()?;
+			let NamespacesColl: Collection<Namespace> = self.client.read().await.database(&self.collectionName).collection("servicedomains");
+			let cursor = NamespacesColl.find(doc! {}).await; //.run()?;
 			let mut domains: Vec<String> = Vec::new();
 
 			match cursor {
@@ -174,11 +174,11 @@ impl DataStore {
 		})
 		.await
 	}
-	pub async fn GetDomains(&self) -> Result<Vec<ServiceDomain>, mongodb::error::Error> {
+	pub async fn GetNamespaces(&self) -> Result<Vec<Namespace>, mongodb::error::Error> {
 		self.retryableQuery(|| async {
-			let serviceDomainsColl: Collection<ServiceDomain> = self.client.read().await.database(&self.collectionName).collection("servicedomains");
-			let cursor = serviceDomainsColl.find(doc! {}).await; //.run()?;
-			let mut domains: Vec<ServiceDomain> = Vec::new();
+			let NamespacesColl: Collection<Namespace> = self.client.read().await.database(&self.collectionName).collection("servicedomains");
+			let cursor = NamespacesColl.find(doc! {}).await; //.run()?;
+			let mut domains: Vec<Namespace> = Vec::new();
 
 			match cursor {
 				Ok(mut c) => {
@@ -245,10 +245,10 @@ impl DataStore {
 	}
 	pub async fn DeleteDomain(&self, id: &String) -> Result<bool, mongodb::error::Error> {
 		self.retryableQuery(|| async {
-			match self.GetDomainByID(id).await {
+			match self.GetNamespaceByID(id).await {
 				Ok(Some(sd)) => {
 					if sd.services.is_empty() {
-						let coll: Collection<ServiceDomain> = self.client.read().await.database(&self.collectionName).collection::<ServiceDomain>("servicedomains");
+						let coll: Collection<Namespace> = self.client.read().await.database(&self.collectionName).collection::<Namespace>("servicedomains");
 						match coll.delete_one(doc! {"id": id}).await {
 							Ok(r) => Ok(r.deleted_count > 0),
 							Err(e) => Err(e),
@@ -312,10 +312,10 @@ impl DataStore {
 			Err(e) => Err(e.to_string()),
 		}
 	}
-	async fn addServiceToDomain(&self, serviceName: &String, domainName: &String, session: &mut ClientSession) -> Result<bool, mongodb::error::Error> {
+	async fn addServiceToNamespace(&self, serviceName: &String, domainName: &String, session: &mut ClientSession) -> Result<bool, mongodb::error::Error> {
 		//TODO: use retryable query.
 		// self.retryableQuery(|| async {
-		let coll: Collection<ServiceDomain> = self.client.read().await.database(&self.collectionName).collection::<ServiceDomain>("servicedomains");
+		let coll: Collection<Namespace> = self.client.read().await.database(&self.collectionName).collection::<Namespace>("servicedomains");
 		match coll
 			.update_one(doc! {"base": domainName}, doc! {"$addToSet": doc!{"services": doc!{"$each": [serviceName]}}})
 			.session(&mut *session)

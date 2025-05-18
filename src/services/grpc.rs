@@ -91,7 +91,7 @@ impl EndpointManager for GRPCServer {
 impl ConfigService for GRPCServer {
 	async fn new_service(&self, request: Request<NewServiceRequest>) -> Result<Response<NewServiceResponse>, Status> {
 		let svc = request.get_ref();
-		match self.apiSvcImpl.NewService(svc.svc_details.as_ref().unwrap(), &svc.parent_service_domain).await {
+		match self.apiSvcImpl.NewService(svc.svc_details.as_ref().unwrap(), &svc.parent_namespace).await {
 			Ok(r) => {
 				let ca_chain = r.1.ca_chain.unwrap();
 				let x = ca_chain.iter().fold(String::new(), |acc, i| acc + "\n" + i);
@@ -110,12 +110,12 @@ impl ConfigService for GRPCServer {
 			}
 		}
 	}
-	async fn new_service_domain(&self, request: Request<NewDomainRequest>) -> Result<Response<Id>, Status> {
-		match self.apiSvcImpl.NewServiceDomain(request.get_ref().domain.as_ref().unwrap()).await {
+	async fn new_namespace(&self, request: Request<NewNamespaceRequest>) -> Result<Response<Id>, Status> {
+		match self.apiSvcImpl.NewNamespace(request.get_ref().domain.as_ref().unwrap()).await {
 			Ok(id) => Ok(Response::new(Id { id })),
 			Err(e) => {
 				if e == "already exists" {
-					Err(Status::new(tonic::Code::AlreadyExists, format!("service domain already exists")))
+					Err(Status::new(tonic::Code::AlreadyExists, format!("service namespace already exists")))
 				} else {
 					Err(Status::new(tonic::Code::Unknown, e))
 				}
@@ -142,22 +142,22 @@ impl ConfigService for GRPCServer {
 			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
 		}
 	}
-	async fn get_domain_by_id(&self, request: Request<Id>) -> Result<Response<ServiceDomain>, Status> {
-		match self.apiSvcImpl.GetDomainByID(&request.get_ref().id).await {
+	async fn get_namespace_by_id(&self, request: Request<Id>) -> Result<Response<Namespace>, Status> {
+		match self.apiSvcImpl.GetNamespaceByID(&request.get_ref().id).await {
 			Ok(Some(d)) => Ok(Response::new(d)),
 			Ok(None) => Err(Status::new(tonic::Code::NotFound, "service with the provided ID doesn't not exist")),
 			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
 		}
 	}
-	async fn get_domain_by_name(&self, request: Request<ByNameRequest>) -> Result<Response<ServiceDomain>, tonic::Status> {
-		match self.apiSvcImpl.GetDomainByName(&request.get_ref().name).await {
+	async fn get_namespace_by_name(&self, request: Request<ByNameRequest>) -> Result<Response<Namespace>, tonic::Status> {
+		match self.apiSvcImpl.GetNamespaceByName(&request.get_ref().name).await {
 			Ok(Some(d)) => Ok(Response::new(d)),
 			Ok(None) => Err(Status::new(tonic::Code::NotFound, "service with the provided name doesn't not exist")),
 			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
 		}
 	}
-	async fn delete_domain(&self, request: Request<Id>) -> Result<Response<Empty>, Status> {
-		match self.apiSvcImpl.DeleteDomain(&request.get_ref().id).await {
+	async fn delete_namespace(&self, request: Request<Id>) -> Result<Response<Empty>, Status> {
+		match self.apiSvcImpl.DeleteNamespace(&request.get_ref().id).await {
 			Ok(r) => {
 				if r {
 					Ok(Response::new(Empty::default()))

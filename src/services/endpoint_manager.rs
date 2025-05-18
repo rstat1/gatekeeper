@@ -7,7 +7,7 @@
 
 use crate::{
 	data::{self},
-	services::v1::{Service, ServiceDomain},
+	services::v1::{Namespace, Service},
 	vault::Certificate as VaultCertificate,
 };
 use bytes::Bytes;
@@ -54,7 +54,7 @@ struct RegisteredEndpoint {
 }
 
 pub struct EndpointManagerImpl {
-	domains: Vec<ServiceDomain>,
+	domains: Vec<Namespace>,
 	gkCert: Arc<VaultCertificate>,
 	svcsList: Mutex<Vec<Service>>,
 	epMap: Mutex<HashMap<String, Vec<RegisteredEndpoint>>>,

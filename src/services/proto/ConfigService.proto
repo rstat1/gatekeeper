@@ -13,7 +13,7 @@ message Alias {
 	string route = 2;
 }
 
-message ServiceDomain {
+message Namespace {
     string base = 1;
     repeated string services = 2;
     repeated string domainSecurityPolicies = 3;
@@ -40,14 +40,14 @@ message ServiceCredentials {
 
 message NewServiceRequest {
     Service svcDetails = 1;
-    string parentServiceDomain = 2;
+    string parentNamespace = 2;
 }
 message NewServiceResponse {
     string id = 1;
     ServiceCredentials cert = 2;
 }    
-message NewDomainRequest {
-    ServiceDomain domain = 1;
+message NewNamespaceRequest {
+    Namespace domain = 1;
 }    
 message ByNameRequest {
     string name = 1;
@@ -60,15 +60,15 @@ message AliasRequest {
 
 service ConfigService {
     rpc NewService(NewServiceRequest) returns (NewServiceResponse);
-    rpc NewServiceDomain(NewDomainRequest) returns (ID);
+    rpc NewNamespace(NewNamespaceRequest) returns (ID);
     rpc NewRouteAlias(AliasRequest) returns (gatekeeper.services.types.Empty);
 
     rpc GetServiceByID(ID) returns (Service);
-    rpc GetDomainByID(ID) returns (ServiceDomain);    
-    rpc GetDomainByName(ByNameRequest) returns (ServiceDomain);
+    rpc GetNamespaceByID(ID) returns (Namespace);    
+    rpc GetNamespaceByName(ByNameRequest) returns (Namespace);
     rpc GetServiceByName(ByNameRequest) returns (Service);
 
-    rpc DeleteDomain(ID) returns (gatekeeper.services.types.Empty);
+    rpc DeleteNamespace(ID) returns (gatekeeper.services.types.Empty);
     rpc DeleteService(ID) returns (gatekeeper.services.types.Empty);
 
     rpc RequestCertRenewal(ID) returns (NewServiceResponse);
