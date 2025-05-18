@@ -18,6 +18,8 @@ message NewServiceEndpoint {
     //alive. If the service does not respond within a configurable time period its endpoint will be removed
     //from the active list.
     string healthCheckRoute = 5;
+    //Specifies whether the service registering the endpoint is running in on a Kubernetes pod
+    bool clientRunningInKubernetes = 6;
 }
 
 message ServiceEndpointRequest {

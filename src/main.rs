@@ -108,7 +108,7 @@ fn main() {
 	tls_settings.enable_h2();
 	// tls_settings.enable_ocsp_stapling();
 
-	let async_check_cert_expiry = async { cmSvc.IsCertificateExpired("gatekeeper".to_string()).await };
+	let async_check_cert_expiry = async { cmSvc.IsCertificateExpired(&"gatekeeper".to_string()).await };
 	match rt.block_on(async_check_cert_expiry) {
 		Ok(ac) => {
 			if ac {
@@ -124,7 +124,7 @@ fn main() {
 	let certPath = Path::new("certs/svcs/gatekeeper.cert");
 
 	if !certPath.exists() {
-		let async_get_server_cert = async { cmSvc.GenerateServiceCert(&"gatekeeper".to_string()).await };
+		let async_get_server_cert = async { cmSvc.GenerateServiceCert(&"gatekeeper".to_string(), false).await };
 		match rt.block_on(async_get_server_cert) {
 			Ok(cert) => apiServiceCert = Arc::new(cert),
 			Err(e) => panic!("{:?}", e),
@@ -137,7 +137,7 @@ fn main() {
 		}
 	}
 
-	let async_sri_init = async { EndpointManagerImpl::new(db.clone(), svcsList.clone(), conf.healthCheckInterval, apiServiceCert.clone()).await };
+	let async_sri_init = async { EndpointManagerImpl::new(db.clone(), svcsList.clone(), conf.healthCheckInterval, apiServiceCert.clone(), cmSvc.clone()).await };
 	match rt.block_on(async_sri_init) {
 		Ok(sri) => srImpl = sri,
 		Err(e) => panic!("{:?}", e),

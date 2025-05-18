@@ -82,19 +82,26 @@ impl CertManagerSvc {
 		// 	},
 		// }
 	}
-	pub async fn GenerateServiceCert(&self, serviceName: &String) -> Result<Certificate, String> {
+	pub async fn GenerateServiceCert(&self, serviceName: &String, saveToVault: bool) -> Result<Certificate, String> {
 		let certResult = self.vault.GenerateServiceCert("gatekeeper", &serviceName).await;
 		match certResult {
 			Ok(cert) => {
 				let mut certToSave = cert.clone();
-				if serviceName != &"gatekeeper".to_string() {
+				if serviceName != &"gatekeeper".to_string() || saveToVault == false {
 					certToSave.private_key = "".to_string();
 				}
 				let certJSON = serde_json::to_string(&certToSave).unwrap();
-				let er = self.vault.Encrypt("platform", certJSON.as_str()).await?;
-				match std::fs::write(format!("certs/svcs/{}.cert", serviceName), er.ciphertext) {
-					Ok(_) => Ok(cert),
-					Err(e) => Err(e.to_string()),
+
+				if saveToVault {
+					let newCreds = format!("base64:{}", engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).encode(certJSON));
+					self.vault.WriteValueToKV(&serviceName.as_str(), "credentials", newCreds.as_str(), "gatekeeper-credentials").await?;
+					Ok(cert)
+				} else {
+					let er = self.vault.Encrypt("platform", certJSON.as_str()).await?;
+					match std::fs::write(format!("certs/svcs/{}.cert", serviceName), er.ciphertext) {
+						Ok(_) => Ok(cert),
+						Err(e) => Err(e.to_string()),
+					}
 				}
 			}
 			Err(e) => Err(e),
@@ -161,8 +168,8 @@ impl CertManagerSvc {
 			Err(e) => Err(format!("GetExistingServiceCert error: {e}")),
 		}
 	}
-	pub async fn IsCertificateExpired(&self, serviceName: String) -> Result<bool, String> {
-		match self.GetExistingServiceCert(serviceName).await {
+	pub async fn IsCertificateExpired(&self, serviceName: &String) -> Result<bool, String> {
+		match self.GetExistingServiceCert(serviceName.clone()).await {
 			Ok(c) => {
 				let currentTime: u64 = Utc::now().timestamp().try_into().unwrap();
 				let certExpireTime: u64 = c.expiration.unwrap_or_default();
@@ -182,7 +189,7 @@ impl CertManagerSvc {
 	pub async fn GenerateACMECert(&self, serviceName: &String) -> Result<bool, String> {
 		let account: Account;
 
-		let r = self.vault.ReadValueFromKV("internalsvcca_account").await;
+		let r = self.vault.ReadValueFromKV("internalsvcca_account", "gatekeeper").await;
 		if r.is_ok() {
 			let credStr: serde_json::Value = serde_json::from_value(r.unwrap()).unwrap();
 			let ac: AccountCredentials = serde_json::from_str(credStr["creds"].as_str().unwrap()).unwrap();
@@ -200,7 +207,7 @@ impl CertManagerSvc {
 				Ok(acc) => {
 					account = acc.0;
 					let creds = serde_json::to_value(acc.1).map_err(|e| e.to_string())?;
-					match self.vault.WriteValueToKV("internalsvcca_account", "creds", creds.to_string()).await {
+					match self.vault.WriteValueToKV("internalsvcca_account", "creds", creds.to_string(), "gatekeeper").await {
 						Ok(_) => {}
 						Err(e) => return Err(e),
 					}

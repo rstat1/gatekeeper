@@ -7,6 +7,7 @@
 
 use base64::engine::general_purpose;
 use base64::{alphabet, engine, Engine};
+use bytes::Bytes;
 use derive_builder::Builder;
 use rustify::clients::reqwest::Client as HTTPClient;
 use rustify::{errors::ClientError, Client, Endpoint, MiddleWare};
@@ -275,6 +276,9 @@ impl VaultClient {
 			Some(t) => {
 				if let Ok(init_token) = t.into_string() {
 					let mut httpClient = reqwest::ClientBuilder::new().use_rustls_tls();
+					let certFile = std::fs::read_to_string("").unwrap_or("".to_string());
+					httpClient = httpClient.add_root_certificate(reqwest::Certificate::from_pem(&Bytes::from(certFile)).unwrap());
+					
 					httpClient = httpClient.danger_accept_invalid_certs(true);
 					let httpClient = httpClient.build().unwrap();
 					let httpC = HTTPClient::new(vault_ep, httpClient);
@@ -328,8 +332,13 @@ impl VaultClient {
 			}
 		}
 	}
-	pub async fn ReadValueFromKV(&self, path: &str) -> Result<Value, String> {
-		let kvReq = KVReadRequest::builder().mount("gatekeeper").path(path.to_string()).build().unwrap();
+	pub async fn ReadValueFromKV(&self, path: &str, mount: &str) -> Result<Value, String> {
+		let mut mountPath = mount;
+		if mount == "" {
+			mountPath = "gatekeeper"
+		}
+
+		let kvReq = KVReadRequest::builder().mount(mountPath).path(path.to_string()).build().unwrap();
 		let result = kvReq.with_middleware(&self.atm).exec(&self.httpClient).await.unwrap().wrap::<VaultResult<_>>();
 		match result {
 			Ok(r) => {
@@ -348,11 +357,14 @@ impl VaultClient {
 			}
 		}
 	}
-	pub async fn WriteValueToKV<T: Serialize>(&self, path: &str, key: &str, value: T) -> Result<(), String> {
-		//TODO: don't hardcode the mount path
+	pub async fn WriteValueToKV<T: Serialize>(&self, path: &str, key: &str, value: T, mount: &str) -> Result<(), String> {
+		let mut mountPath = mount;
+		if mount == "" {
+			mountPath = "gatekeeper"
+		}
 		let data: HashMap<&str, T> = HashMap::from([(key, value)]);
 		let data_value_json = data.serialize(serde_json::value::Serializer).map_err(|e| String::from(e.to_string()))?;
-		let kvReq = KVWriteRequest::builder().mount("gatekeeper").path(path.to_string()).data(data_value_json).build().unwrap();
+		let kvReq = KVWriteRequest::builder().mount(mountPath).path(path.to_string()).data(data_value_json).build().unwrap();
 		let result = kvReq.with_middleware(&self.atm).exec(&self.httpClient).await;
 		match result {
 			Ok(_) => Ok(()),
