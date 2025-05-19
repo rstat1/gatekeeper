@@ -181,14 +181,15 @@ func (gc *GatekeeperClient) registerEPInternal(serviceName, endpointName, addres
 	hcrIP := addrParts[0]
 
 	if gc.config.ClientIsRunningOnKubernetes {
-		//ignore the value of address and replace with our own. Minus the port, we can keep the port.
-		actualIP, err := GetLoadBalancerIP(serviceName)
-		if err != nil {
-			panic(err)
+		//Ignore the value of address in favor of our own. Minus the port, we can keep the port.
+
+		if actualIP, err := GetLoadBalancerIP(serviceName); err == nil {
+			hcrIP = actualIP
+			address = actualIP + ":" + addrParts[1]
+			gc.logInfo("newAddress", address, "running in a k8s pod, overriding provided outbound IP")
+		} else {
+			gc.logError("", "", "failed to get external IP, this will cause the service to not be reachable by Gatekeeper")
 		}
-		hcrIP = actualIP
-		address = actualIP + ":" + addrParts[1]
-		gc.logInfo("newAddress", address, "running in a k8s pod, overriding provided outbound IP")
 	}
 
 	_, e := gc.endpointManager.RegisterServiceEndpoint(context.Background(), &ep.NewServiceEndpoint{
@@ -322,7 +323,7 @@ func (gc *GatekeeperClient) renewCredentials() {
 		} else {
 			gc.logError("action", "RequestCertRenewal", e)
 		}
-		
+
 	}
-	
+
 }
