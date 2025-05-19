@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	v1 "go.alargerobot.dev/gatekeeper/sdk/rpc/config/v1"
 )
 
 const DEVICE_API_CONTENT_TYPE = "application/x-gatekeeper-device-api"
@@ -53,7 +54,7 @@ func NewExternalDeviceClient(serviceURL string, endpointServicesAddr string, gkc
 	edc := &ExternalDeviceClient{
 		serviceURL: serviceURL,
 		epsAddr:    endpointServicesAddr,
-		epsServer:  NewEndpointServiceServer(true, deviceID, gkc),
+		epsServer:  NewEndpointServiceServer(true, deviceID, gkc, func(nsr v1.NewServiceResponse) {}),
 	}
 
 	addrParts := strings.Split(endpointServicesAddr, ":")
@@ -79,7 +80,7 @@ func NewExternalDeviceClient(serviceURL string, endpointServicesAddr string, gkc
 // client) if successful.
 //
 // # Parameters
-//   - serviceURL should be a combo of the service's name and the service domain it belongs to
+//   - serviceURL should be a combo of the service's name and the namespace it belongs to
 //   - Example: gktest.test.alargerobot.dev
 func (edc *ExternalDeviceClient) Login() error {
 	var dar DeviceAuthRequest

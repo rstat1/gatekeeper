@@ -37,8 +37,10 @@ type NewServiceEndpoint struct {
 	// alive. If the service does not respond within a configurable time period its endpoint will be removed
 	// from the active list.
 	HealthCheckRoute string `protobuf:"bytes,5,opt,name=healthCheckRoute,proto3" json:"healthCheckRoute,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Specifies whether the service registering the endpoint is running in on a Kubernetes pod
+	ClientRunningInKubernetes bool `protobuf:"varint,6,opt,name=clientRunningInKubernetes,proto3" json:"clientRunningInKubernetes,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *NewServiceEndpoint) Reset() {
@@ -106,10 +108,20 @@ func (x *NewServiceEndpoint) GetHealthCheckRoute() string {
 	return ""
 }
 
+func (x *NewServiceEndpoint) GetClientRunningInKubernetes() bool {
+	if x != nil {
+		return x.ClientRunningInKubernetes
+	}
+	return false
+}
+
 type ServiceEndpointRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Should be formatted like so: "//<service-name>:<endpoint-name>/<optional;tag;list>"
-	Query         string `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
+	// Types that are valid to be assigned to Name:
+	//
+	//	*ServiceEndpointRequest_Service
+	//	*ServiceEndpointRequest_Endpoint
+	Name          isServiceEndpointRequest_Name `protobuf_oneof:"name"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -144,12 +156,46 @@ func (*ServiceEndpointRequest) Descriptor() ([]byte, []int) {
 	return file_EndpointManager_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *ServiceEndpointRequest) GetQuery() string {
+func (x *ServiceEndpointRequest) GetName() isServiceEndpointRequest_Name {
 	if x != nil {
-		return x.Query
+		return x.Name
+	}
+	return nil
+}
+
+func (x *ServiceEndpointRequest) GetService() string {
+	if x != nil {
+		if x, ok := x.Name.(*ServiceEndpointRequest_Service); ok {
+			return x.Service
+		}
 	}
 	return ""
 }
+
+func (x *ServiceEndpointRequest) GetEndpoint() string {
+	if x != nil {
+		if x, ok := x.Name.(*ServiceEndpointRequest_Endpoint); ok {
+			return x.Endpoint
+		}
+	}
+	return ""
+}
+
+type isServiceEndpointRequest_Name interface {
+	isServiceEndpointRequest_Name()
+}
+
+type ServiceEndpointRequest_Service struct {
+	Service string `protobuf:"bytes,1,opt,name=service,proto3,oneof"`
+}
+
+type ServiceEndpointRequest_Endpoint struct {
+	Endpoint string `protobuf:"bytes,2,opt,name=endpoint,proto3,oneof"`
+}
+
+func (*ServiceEndpointRequest_Service) isServiceEndpointRequest_Name() {}
+
+func (*ServiceEndpointRequest_Endpoint) isServiceEndpointRequest_Name() {}
 
 type ServiceEndpointResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -199,15 +245,18 @@ var File_EndpointManager_proto protoreflect.FileDescriptor
 
 const file_EndpointManager_proto_rawDesc = "" +
 	"\n" +
-	"\x15EndpointManager.proto\x12\x1egatekeeper.endpoint_manager.v1\x1a\vtypes.proto\"\xb6\x01\n" +
+	"\x15EndpointManager.proto\x12\x1egatekeeper.endpoint_manager.v1\x1a\vtypes.proto\"\xf4\x01\n" +
 	"\x12NewServiceEndpoint\x12 \n" +
 	"\vserviceName\x18\x01 \x01(\tR\vserviceName\x12\x12\n" +
 	"\x04tags\x18\x02 \x03(\tR\x04tags\x12\x1a\n" +
 	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12\"\n" +
 	"\fendpointName\x18\x04 \x01(\tR\fendpointName\x12*\n" +
-	"\x10healthCheckRoute\x18\x05 \x01(\tR\x10healthCheckRoute\".\n" +
-	"\x16ServiceEndpointRequest\x12\x14\n" +
-	"\x05query\x18\x01 \x01(\tR\x05query\"5\n" +
+	"\x10healthCheckRoute\x18\x05 \x01(\tR\x10healthCheckRoute\x12<\n" +
+	"\x19clientRunningInKubernetes\x18\x06 \x01(\bR\x19clientRunningInKubernetes\"Z\n" +
+	"\x16ServiceEndpointRequest\x12\x1a\n" +
+	"\aservice\x18\x01 \x01(\tH\x00R\aservice\x12\x1c\n" +
+	"\bendpoint\x18\x02 \x01(\tH\x00R\bendpointB\x06\n" +
+	"\x04name\"5\n" +
 	"\x17ServiceEndpointResponse\x12\x1a\n" +
 	"\bendpoint\x18\x01 \x01(\tR\bendpoint2\x8a\x02\n" +
 	"\x0fEndpointManager\x12\x85\x01\n" +
@@ -249,6 +298,10 @@ func init() { file_EndpointManager_proto_init() }
 func file_EndpointManager_proto_init() {
 	if File_EndpointManager_proto != nil {
 		return
+	}
+	file_EndpointManager_proto_msgTypes[1].OneofWrappers = []any{
+		(*ServiceEndpointRequest_Service)(nil),
+		(*ServiceEndpointRequest_Endpoint)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

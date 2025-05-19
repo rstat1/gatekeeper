@@ -21,13 +21,13 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	ConfigService_NewService_FullMethodName         = "/gatekeeper.config.v1.ConfigService/NewService"
-	ConfigService_NewServiceDomain_FullMethodName   = "/gatekeeper.config.v1.ConfigService/NewServiceDomain"
+	ConfigService_NewNamespace_FullMethodName       = "/gatekeeper.config.v1.ConfigService/NewNamespace"
 	ConfigService_NewRouteAlias_FullMethodName      = "/gatekeeper.config.v1.ConfigService/NewRouteAlias"
 	ConfigService_GetServiceByID_FullMethodName     = "/gatekeeper.config.v1.ConfigService/GetServiceByID"
-	ConfigService_GetDomainByID_FullMethodName      = "/gatekeeper.config.v1.ConfigService/GetDomainByID"
-	ConfigService_GetDomainByName_FullMethodName    = "/gatekeeper.config.v1.ConfigService/GetDomainByName"
+	ConfigService_GetNamespaceByID_FullMethodName   = "/gatekeeper.config.v1.ConfigService/GetNamespaceByID"
+	ConfigService_GetNamespaceByName_FullMethodName = "/gatekeeper.config.v1.ConfigService/GetNamespaceByName"
 	ConfigService_GetServiceByName_FullMethodName   = "/gatekeeper.config.v1.ConfigService/GetServiceByName"
-	ConfigService_DeleteDomain_FullMethodName       = "/gatekeeper.config.v1.ConfigService/DeleteDomain"
+	ConfigService_DeleteNamespace_FullMethodName    = "/gatekeeper.config.v1.ConfigService/DeleteNamespace"
 	ConfigService_DeleteService_FullMethodName      = "/gatekeeper.config.v1.ConfigService/DeleteService"
 	ConfigService_RequestCertRenewal_FullMethodName = "/gatekeeper.config.v1.ConfigService/RequestCertRenewal"
 )
@@ -37,13 +37,13 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ConfigServiceClient interface {
 	NewService(ctx context.Context, in *NewServiceRequest, opts ...grpc.CallOption) (*NewServiceResponse, error)
-	NewServiceDomain(ctx context.Context, in *NewDomainRequest, opts ...grpc.CallOption) (*ID, error)
+	NewNamespace(ctx context.Context, in *NewNamespaceRequest, opts ...grpc.CallOption) (*ID, error)
 	NewRouteAlias(ctx context.Context, in *AliasRequest, opts ...grpc.CallOption) (*types.Empty, error)
 	GetServiceByID(ctx context.Context, in *ID, opts ...grpc.CallOption) (*Service, error)
-	GetDomainByID(ctx context.Context, in *ID, opts ...grpc.CallOption) (*ServiceDomain, error)
-	GetDomainByName(ctx context.Context, in *ByNameRequest, opts ...grpc.CallOption) (*ServiceDomain, error)
+	GetNamespaceByID(ctx context.Context, in *ID, opts ...grpc.CallOption) (*Namespace, error)
+	GetNamespaceByName(ctx context.Context, in *ByNameRequest, opts ...grpc.CallOption) (*Namespace, error)
 	GetServiceByName(ctx context.Context, in *ByNameRequest, opts ...grpc.CallOption) (*Service, error)
-	DeleteDomain(ctx context.Context, in *ID, opts ...grpc.CallOption) (*types.Empty, error)
+	DeleteNamespace(ctx context.Context, in *ID, opts ...grpc.CallOption) (*types.Empty, error)
 	DeleteService(ctx context.Context, in *ID, opts ...grpc.CallOption) (*types.Empty, error)
 	RequestCertRenewal(ctx context.Context, in *ID, opts ...grpc.CallOption) (*NewServiceResponse, error)
 }
@@ -66,10 +66,10 @@ func (c *configServiceClient) NewService(ctx context.Context, in *NewServiceRequ
 	return out, nil
 }
 
-func (c *configServiceClient) NewServiceDomain(ctx context.Context, in *NewDomainRequest, opts ...grpc.CallOption) (*ID, error) {
+func (c *configServiceClient) NewNamespace(ctx context.Context, in *NewNamespaceRequest, opts ...grpc.CallOption) (*ID, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ID)
-	err := c.cc.Invoke(ctx, ConfigService_NewServiceDomain_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, ConfigService_NewNamespace_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -96,20 +96,20 @@ func (c *configServiceClient) GetServiceByID(ctx context.Context, in *ID, opts .
 	return out, nil
 }
 
-func (c *configServiceClient) GetDomainByID(ctx context.Context, in *ID, opts ...grpc.CallOption) (*ServiceDomain, error) {
+func (c *configServiceClient) GetNamespaceByID(ctx context.Context, in *ID, opts ...grpc.CallOption) (*Namespace, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ServiceDomain)
-	err := c.cc.Invoke(ctx, ConfigService_GetDomainByID_FullMethodName, in, out, cOpts...)
+	out := new(Namespace)
+	err := c.cc.Invoke(ctx, ConfigService_GetNamespaceByID_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *configServiceClient) GetDomainByName(ctx context.Context, in *ByNameRequest, opts ...grpc.CallOption) (*ServiceDomain, error) {
+func (c *configServiceClient) GetNamespaceByName(ctx context.Context, in *ByNameRequest, opts ...grpc.CallOption) (*Namespace, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ServiceDomain)
-	err := c.cc.Invoke(ctx, ConfigService_GetDomainByName_FullMethodName, in, out, cOpts...)
+	out := new(Namespace)
+	err := c.cc.Invoke(ctx, ConfigService_GetNamespaceByName_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -126,10 +126,10 @@ func (c *configServiceClient) GetServiceByName(ctx context.Context, in *ByNameRe
 	return out, nil
 }
 
-func (c *configServiceClient) DeleteDomain(ctx context.Context, in *ID, opts ...grpc.CallOption) (*types.Empty, error) {
+func (c *configServiceClient) DeleteNamespace(ctx context.Context, in *ID, opts ...grpc.CallOption) (*types.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(types.Empty)
-	err := c.cc.Invoke(ctx, ConfigService_DeleteDomain_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, ConfigService_DeleteNamespace_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -161,13 +161,13 @@ func (c *configServiceClient) RequestCertRenewal(ctx context.Context, in *ID, op
 // for forward compatibility.
 type ConfigServiceServer interface {
 	NewService(context.Context, *NewServiceRequest) (*NewServiceResponse, error)
-	NewServiceDomain(context.Context, *NewDomainRequest) (*ID, error)
+	NewNamespace(context.Context, *NewNamespaceRequest) (*ID, error)
 	NewRouteAlias(context.Context, *AliasRequest) (*types.Empty, error)
 	GetServiceByID(context.Context, *ID) (*Service, error)
-	GetDomainByID(context.Context, *ID) (*ServiceDomain, error)
-	GetDomainByName(context.Context, *ByNameRequest) (*ServiceDomain, error)
+	GetNamespaceByID(context.Context, *ID) (*Namespace, error)
+	GetNamespaceByName(context.Context, *ByNameRequest) (*Namespace, error)
 	GetServiceByName(context.Context, *ByNameRequest) (*Service, error)
-	DeleteDomain(context.Context, *ID) (*types.Empty, error)
+	DeleteNamespace(context.Context, *ID) (*types.Empty, error)
 	DeleteService(context.Context, *ID) (*types.Empty, error)
 	RequestCertRenewal(context.Context, *ID) (*NewServiceResponse, error)
 	mustEmbedUnimplementedConfigServiceServer()
@@ -183,8 +183,8 @@ type UnimplementedConfigServiceServer struct{}
 func (UnimplementedConfigServiceServer) NewService(context.Context, *NewServiceRequest) (*NewServiceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NewService not implemented")
 }
-func (UnimplementedConfigServiceServer) NewServiceDomain(context.Context, *NewDomainRequest) (*ID, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method NewServiceDomain not implemented")
+func (UnimplementedConfigServiceServer) NewNamespace(context.Context, *NewNamespaceRequest) (*ID, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method NewNamespace not implemented")
 }
 func (UnimplementedConfigServiceServer) NewRouteAlias(context.Context, *AliasRequest) (*types.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NewRouteAlias not implemented")
@@ -192,17 +192,17 @@ func (UnimplementedConfigServiceServer) NewRouteAlias(context.Context, *AliasReq
 func (UnimplementedConfigServiceServer) GetServiceByID(context.Context, *ID) (*Service, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetServiceByID not implemented")
 }
-func (UnimplementedConfigServiceServer) GetDomainByID(context.Context, *ID) (*ServiceDomain, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetDomainByID not implemented")
+func (UnimplementedConfigServiceServer) GetNamespaceByID(context.Context, *ID) (*Namespace, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetNamespaceByID not implemented")
 }
-func (UnimplementedConfigServiceServer) GetDomainByName(context.Context, *ByNameRequest) (*ServiceDomain, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetDomainByName not implemented")
+func (UnimplementedConfigServiceServer) GetNamespaceByName(context.Context, *ByNameRequest) (*Namespace, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetNamespaceByName not implemented")
 }
 func (UnimplementedConfigServiceServer) GetServiceByName(context.Context, *ByNameRequest) (*Service, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetServiceByName not implemented")
 }
-func (UnimplementedConfigServiceServer) DeleteDomain(context.Context, *ID) (*types.Empty, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method DeleteDomain not implemented")
+func (UnimplementedConfigServiceServer) DeleteNamespace(context.Context, *ID) (*types.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteNamespace not implemented")
 }
 func (UnimplementedConfigServiceServer) DeleteService(context.Context, *ID) (*types.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteService not implemented")
@@ -249,20 +249,20 @@ func _ConfigService_NewService_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ConfigService_NewServiceDomain_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(NewDomainRequest)
+func _ConfigService_NewNamespace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(NewNamespaceRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ConfigServiceServer).NewServiceDomain(ctx, in)
+		return srv.(ConfigServiceServer).NewNamespace(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ConfigService_NewServiceDomain_FullMethodName,
+		FullMethod: ConfigService_NewNamespace_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ConfigServiceServer).NewServiceDomain(ctx, req.(*NewDomainRequest))
+		return srv.(ConfigServiceServer).NewNamespace(ctx, req.(*NewNamespaceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -303,38 +303,38 @@ func _ConfigService_GetServiceByID_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ConfigService_GetDomainByID_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ConfigService_GetNamespaceByID_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ID)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ConfigServiceServer).GetDomainByID(ctx, in)
+		return srv.(ConfigServiceServer).GetNamespaceByID(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ConfigService_GetDomainByID_FullMethodName,
+		FullMethod: ConfigService_GetNamespaceByID_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ConfigServiceServer).GetDomainByID(ctx, req.(*ID))
+		return srv.(ConfigServiceServer).GetNamespaceByID(ctx, req.(*ID))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ConfigService_GetDomainByName_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ConfigService_GetNamespaceByName_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ByNameRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ConfigServiceServer).GetDomainByName(ctx, in)
+		return srv.(ConfigServiceServer).GetNamespaceByName(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ConfigService_GetDomainByName_FullMethodName,
+		FullMethod: ConfigService_GetNamespaceByName_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ConfigServiceServer).GetDomainByName(ctx, req.(*ByNameRequest))
+		return srv.(ConfigServiceServer).GetNamespaceByName(ctx, req.(*ByNameRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -357,20 +357,20 @@ func _ConfigService_GetServiceByName_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ConfigService_DeleteDomain_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ConfigService_DeleteNamespace_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ID)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ConfigServiceServer).DeleteDomain(ctx, in)
+		return srv.(ConfigServiceServer).DeleteNamespace(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ConfigService_DeleteDomain_FullMethodName,
+		FullMethod: ConfigService_DeleteNamespace_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ConfigServiceServer).DeleteDomain(ctx, req.(*ID))
+		return srv.(ConfigServiceServer).DeleteNamespace(ctx, req.(*ID))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -423,8 +423,8 @@ var ConfigService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ConfigService_NewService_Handler,
 		},
 		{
-			MethodName: "NewServiceDomain",
-			Handler:    _ConfigService_NewServiceDomain_Handler,
+			MethodName: "NewNamespace",
+			Handler:    _ConfigService_NewNamespace_Handler,
 		},
 		{
 			MethodName: "NewRouteAlias",
@@ -435,20 +435,20 @@ var ConfigService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ConfigService_GetServiceByID_Handler,
 		},
 		{
-			MethodName: "GetDomainByID",
-			Handler:    _ConfigService_GetDomainByID_Handler,
+			MethodName: "GetNamespaceByID",
+			Handler:    _ConfigService_GetNamespaceByID_Handler,
 		},
 		{
-			MethodName: "GetDomainByName",
-			Handler:    _ConfigService_GetDomainByName_Handler,
+			MethodName: "GetNamespaceByName",
+			Handler:    _ConfigService_GetNamespaceByName_Handler,
 		},
 		{
 			MethodName: "GetServiceByName",
 			Handler:    _ConfigService_GetServiceByName_Handler,
 		},
 		{
-			MethodName: "DeleteDomain",
-			Handler:    _ConfigService_DeleteDomain_Handler,
+			MethodName: "DeleteNamespace",
+			Handler:    _ConfigService_DeleteNamespace_Handler,
 		},
 		{
 			MethodName: "DeleteService",

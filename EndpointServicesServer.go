@@ -4,27 +4,34 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
+
+	v1 "go.alargerobot.dev/gatekeeper/sdk/rpc/config/v1"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type endpointServicesServer struct {
-	isEDC    bool
-	deviceID string
-	gkc      *GatekeeperClient
+	isEDC           bool
+	deviceID        string
+	epsServer       *http.Server
+	gatekeeper      *GatekeeperClient
+	handleCertRenew func(v1.NewServiceResponse)
 }
 
-func NewEndpointServiceServer(forClient bool, deviceID string, gkc *GatekeeperClient) *endpointServicesServer {
+func NewEndpointServiceServer(forClient bool, deviceID string, gkc *GatekeeperClient, handleCertRenew func(v1.NewServiceResponse)) *endpointServicesServer {
 	return &endpointServicesServer{
-		gkc:      gkc,
-		isEDC:    forClient,
-		deviceID: deviceID,
+		gatekeeper:      gkc,
+		isEDC:           forClient,
+		deviceID:        deviceID,
+		handleCertRenew: handleCertRenew,
 	}
 }
 
 func (ess *endpointServicesServer) ListenAndServe(port int) error {
-	gkCreds := ess.gkc.GetCredentials()
+	gkCreds := ess.gatekeeper.GetCredentials()
 
 	ca := x509.NewCertPool()
 	ca.AppendCertsFromPEM([]byte(gkCreds.Cert.CaCert))
@@ -47,7 +54,7 @@ func (ess *endpointServicesServer) ListenAndServe(port int) error {
 		},
 	}
 
-	server := http.Server{
+	ess.epsServer = &http.Server{
 		Addr:      ":" + strconv.Itoa(port),
 		Handler:   ess,
 		TLSConfig: &tlsConf,
@@ -58,7 +65,7 @@ func (ess *endpointServicesServer) ListenAndServe(port int) error {
 	}
 	defer listener.Close()
 
-	err = server.ServeTLS(listener, "", "")
+	err = ess.epsServer.ServeTLS(listener, "", "")
 	if err != nil {
 		panic(err)
 	}
@@ -97,5 +104,17 @@ func (ess *endpointServicesServer) signToken(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNotImplemented)
 }
 func (ess *endpointServicesServer) renewCert(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
+	if newCreds, e := io.ReadAll(r.Body); e == nil {
+		var nsr v1.NewServiceResponse
+		if err := protojson.Unmarshal(newCreds, &nsr); err == nil {
+			ess.handleCertRenew(nsr)
+			w.Write([]byte("ok"))
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+		}
+	} else {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(e.Error()))
+	}
 }

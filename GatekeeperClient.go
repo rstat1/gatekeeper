@@ -34,6 +34,7 @@ type GatekeeperClient struct {
 }
 
 type GatekeeperClientConfig struct {
+	ServiceName                 string
 	GatekeeperAPIAddress        string
 	EndpointServicesPort        int
 	CredentialsRenewedHandler   func()
@@ -104,9 +105,9 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 
 	grpcClient, e := grpc.NewClient("dns:///"+config.GatekeeperAPIAddress, grpc.WithTransportCredentials(
 		credentials.NewTLS(&tls.Config{
+			RootCAs:      ca,
 			ServerName:   "gatekeeper",
 			Certificates: []tls.Certificate{cert},
-			RootCAs:      ca,
 		})))
 
 	if e != nil {
@@ -120,29 +121,28 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 		configService:   cs.NewConfigServiceClient(grpcClient),
 		endpointManager: ep.NewEndpointManagerClient(grpcClient),
 	}
-	gkc.epsServer = NewEndpointServiceServer(false, "", gkc)
+	gkc.epsServer = NewEndpointServiceServer(false, "", gkc, gkc.newCredsReceievedFromGK)
 	go gkc.epsServer.ListenAndServe(config.EndpointServicesPort)
 
 	gkc.logger = logrus.New()
 	gkc.logger.Out = os.Stderr
 	gkc.logger.SetLevel(logrus.DebugLevel)
 
-	expTime := gkCreds.Cert.ExpiresAt
-
-	if time.Now().UTC().AddDate(0, 0, 5).Unix() == int64(expTime) {
-		gkc.logInfo("", "", "renew credentials...")
-		gkc.renewCredentials()
-	} else if time.Now().UTC().Unix() == int64(expTime) {
-		gkc.logInfo("", "", "renew credentials...")
-		gkc.renewCredentials()
-	} else if time.Now().UTC().Unix() > int64(expTime) {
-		gkc.logInfo("", "", "renew credentials...")
-		gkc.renewCredentials()
-	}
-
 	if config.ClientIsRunningOnKubernetes {
 		gkc.credsFileWatcher()
 	} else {
+		expTime := gkCreds.Cert.ExpiresAt
+		if time.Now().UTC().AddDate(0, 0, 5).Unix() == int64(expTime) {
+			gkc.logInfo("", "", "renew credentials...")
+			gkc.renewCredentials()
+		} else if time.Now().UTC().Unix() == int64(expTime) {
+			gkc.logInfo("", "", "renew credentials...")
+			gkc.renewCredentials()
+		} else if time.Now().UTC().Unix() > int64(expTime) {
+			gkc.logInfo("", "", "renew credentials...")
+			gkc.renewCredentials()
+		}
+
 		go gkc.certRenewTimer()
 	}
 
@@ -182,7 +182,7 @@ func (gc *GatekeeperClient) registerEPInternal(serviceName, endpointName, addres
 
 	if gc.config.ClientIsRunningOnKubernetes {
 		//ignore the value of address and replace with our own. Minus the port, we can keep the port.
-		actualIP, err := GetK8sServiceStatus(serviceName)
+		actualIP, err := GetLoadBalancerIP(serviceName)
 		if err != nil {
 			panic(err)
 		}
@@ -192,11 +192,12 @@ func (gc *GatekeeperClient) registerEPInternal(serviceName, endpointName, addres
 	}
 
 	_, e := gc.endpointManager.RegisterServiceEndpoint(context.Background(), &ep.NewServiceEndpoint{
-		Tags:             tags,
-		Endpoint:         address,
-		ServiceName:      serviceName,
-		EndpointName:     endpointName,
-		HealthCheckRoute: "https://" + hcrIP + ":" + strconv.Itoa(gc.config.EndpointServicesPort) + "/ping",
+		Tags:                      tags,
+		Endpoint:                  address,
+		ServiceName:               serviceName,
+		EndpointName:              endpointName,
+		ClientRunningInKubernetes: gc.config.ClientIsRunningOnKubernetes,
+		HealthCheckRoute:          "https://" + hcrIP + ":" + strconv.Itoa(gc.config.EndpointServicesPort) + "/ping",
 	})
 	return e
 }
@@ -210,6 +211,30 @@ func (gc *GatekeeperClient) logInfo(extraKey string, extraValue interface{}, ent
 		gc.logger.WithFields(logrus.Fields{extraKey: extraValue, "func": name, "line": line}).Infoln(entry)
 	} else {
 		gc.logger.WithFields(logrus.Fields{"func": name, "line": line}).Infoln(entry)
+	}
+}
+func (gc *GatekeeperClient) logWarn(extraKey string, extraValue interface{}, entry interface{}) {
+	pc, _, line, _ := runtime.Caller(1)
+	funcObj := runtime.FuncForPC(pc)
+	runtimeFunc := regexp.MustCompile(`^.*\.(.*)$`)
+	name := runtimeFunc.ReplaceAllString(funcObj.Name(), "$1")
+
+	if extraKey != "" {
+		gc.logger.WithFields(logrus.Fields{extraKey: extraValue, "func": name, "line": line}).Warnln(entry)
+	} else {
+		gc.logger.WithFields(logrus.Fields{"func": name, "line": line}).Warnln(entry)
+	}
+}
+func (gc *GatekeeperClient) logError(extraKey string, extraValue interface{}, entry interface{}) {
+	pc, _, line, _ := runtime.Caller(1)
+	funcObj := runtime.FuncForPC(pc)
+	runtimeFunc := regexp.MustCompile(`^.*\.(.*)$`)
+	name := runtimeFunc.ReplaceAllString(funcObj.Name(), "$1")
+
+	if extraKey != "" {
+		gc.logger.WithFields(logrus.Fields{extraKey: extraValue, "func": name, "line": line}).Errorln(entry)
+	} else {
+		gc.logger.WithFields(logrus.Fields{"func": name, "line": line}).Errorln(entry)
 	}
 }
 func (gc *GatekeeperClient) credsFileWatcher() {
@@ -260,7 +285,14 @@ func (gc *GatekeeperClient) certRenewTimer() {
 		}
 	}
 }
-
+func (gc *GatekeeperClient) newCredsReceievedFromGK(credentials cs.NewServiceResponse) {
+	err := ForceExternalSecretSync(gc.config.ServiceName)
+	if err != nil {
+		gc.logWarn("action", "ForceExternalSecretSync", err)
+	}
+	gc.credentials = credentials
+	gc.config.CredentialsRenewedHandler()
+}
 func (gc *GatekeeperClient) renewCredentials() {
 	if path, set := os.LookupEnv("CREDENTIALS_FILE_PATH"); set {
 		creds, e := os.ReadFile(path)
@@ -276,6 +308,7 @@ func (gc *GatekeeperClient) renewCredentials() {
 		if e != nil {
 			panic(e)
 		}
+		gc.logInfo("updatedAt", time.Now(), "updated Gatekeeper credentials...")
 	} else {
 		if r, e := gc.configService.RequestCertRenewal(context.Background(), &cs.ID{Id: gc.credentials.Id}); e == nil {
 			gc.credentials = *r
@@ -285,6 +318,11 @@ func (gc *GatekeeperClient) renewCredentials() {
 				panic(e)
 			}
 			gc.config.CredentialsRenewedHandler()
+			gc.logInfo("updatedAt", time.Now(), "updated Gatekeeper credentials...")
+		} else {
+			gc.logError("action", "RequestCertRenewal", e)
 		}
+		
 	}
+	
 }
