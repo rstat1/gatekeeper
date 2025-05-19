@@ -54,7 +54,7 @@ func NewExternalDeviceClient(serviceURL string, endpointServicesAddr string, gkc
 	edc := &ExternalDeviceClient{
 		serviceURL: serviceURL,
 		epsAddr:    endpointServicesAddr,
-		epsServer:  NewEndpointServiceServer(true, deviceID, gkc, func(nsr v1.NewServiceResponse) {}),
+		epsServer:  newEndpointServiceServer(true, deviceID, gkc, func(nsr v1.NewServiceResponse) {}),
 	}
 
 	addrParts := strings.Split(endpointServicesAddr, ":")

@@ -21,7 +21,7 @@ type endpointServicesServer struct {
 	handleCertRenew func(v1.NewServiceResponse)
 }
 
-func NewEndpointServiceServer(forClient bool, deviceID string, gkc *GatekeeperClient, handleCertRenew func(v1.NewServiceResponse)) *endpointServicesServer {
+func newEndpointServiceServer(forClient bool, deviceID string, gkc *GatekeeperClient, handleCertRenew func(v1.NewServiceResponse)) *endpointServicesServer {
 	return &endpointServicesServer{
 		gatekeeper:      gkc,
 		isEDC:           forClient,

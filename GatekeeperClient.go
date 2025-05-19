@@ -121,7 +121,7 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 		configService:   cs.NewConfigServiceClient(grpcClient),
 		endpointManager: ep.NewEndpointManagerClient(grpcClient),
 	}
-	gkc.epsServer = NewEndpointServiceServer(false, "", gkc, gkc.newCredsReceievedFromGK)
+	gkc.epsServer = newEndpointServiceServer(false, "", gkc, gkc.newCredsReceievedFromGK)
 	go gkc.epsServer.ListenAndServe(config.EndpointServicesPort)
 
 	gkc.logger = logrus.New()
