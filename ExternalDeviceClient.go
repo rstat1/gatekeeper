@@ -31,6 +31,12 @@ type ExternalDeviceClient struct {
 	epsServer  *endpointServicesServer
 }
 
+type ExternalDeviceClientConfig struct {
+	ServiceURL                string
+	EndpointServicesAddr      string
+	CertificateRenewalHandler func(v1.ServiceCredentials)
+}
+
 type deviceRegistration struct {
 	DeviceID     string `json:"deviceID"`
 	ServicesAddr string `json:"servicesAddr"`
@@ -47,17 +53,17 @@ type deviceRegistration struct {
 //   - endpointServicesAddr should be formated: <ip-address:port> and is the address/port that
 //     Gatekeeper will use the contact the client when necessary (currently just used for provisioning
 //     new certifcates when they expire).
-func NewExternalDeviceClient(serviceURL string, endpointServicesAddr string, gkc *GatekeeperClient) *ExternalDeviceClient {
-	svcName := strings.Split(serviceURL, ".")[0]
+func NewExternalDeviceClient(config ExternalDeviceClientConfig, gkc *GatekeeperClient) *ExternalDeviceClient {
+	svcName := strings.Split(config.ServiceURL, ".")[0]
 	deviceID := svcName + "-extdev-" + uuid.NewString()
 
 	edc := &ExternalDeviceClient{
-		serviceURL: serviceURL,
-		epsAddr:    endpointServicesAddr,
-		epsServer:  newEndpointServiceServer(true, deviceID, gkc, func(nsr v1.ServiceCredentials) {}),
+		serviceURL: config.ServiceURL,
+		epsAddr:    config.EndpointServicesAddr,
+		epsServer:  newEndpointServiceServer(true, deviceID, gkc, config.CertificateRenewalHandler),
 	}
 
-	addrParts := strings.Split(endpointServicesAddr, ":")
+	addrParts := strings.Split(config.EndpointServicesAddr, ":")
 
 	if len(addrParts) != 2 {
 		panic(errors.New("invalid address specified. address format is: <ip-address:port>"))

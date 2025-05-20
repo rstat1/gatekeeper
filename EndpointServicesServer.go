@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 
 	v1 "go.alargerobot.dev/gatekeeper/sdk/rpc/config/v1"
@@ -31,7 +32,20 @@ func newEndpointServiceServer(forClient bool, deviceID string, gkc *GatekeeperCl
 }
 
 func (ess *endpointServicesServer) ListenAndServe(port int) error {
-	gkCreds := ess.gatekeeper.GetCredentials()
+	var gkCreds *v1.ServiceCredentials
+	if ess.isEDC {
+		creds, e := os.ReadFile("gatekeeper-credentials.json")
+		if e != nil {
+			panic(e)
+		}
+		e = protojson.Unmarshal(creds, gkCreds)
+		if e != nil {
+			panic(e)
+		}
+	} else {
+		gkCreds = ess.gatekeeper.GetCredentials()
+
+	}
 
 	ca := x509.NewCertPool()
 	ca.AppendCertsFromPEM([]byte(gkCreds.CaCert))
