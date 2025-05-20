@@ -62,7 +62,7 @@ fn main() {
 		Err(e) => panic!("{:?}", e),
 	}
 
-	let get_db_creds = async { vault.GetDBCredentials().await };
+	let get_db_creds = async { vault.GetDBCredentials(conf.devMode.unwrap_or(false)).await };
 	match rt.block_on(get_db_creds) {
 		Ok(dbs) => dbCreds = dbs,
 		Err(e) => panic!("{:?}", e),
@@ -76,6 +76,7 @@ fn main() {
 			conf.collectionName,
 			vault.clone(),
 			conf.redisServerAddress.clone(),
+			conf.devMode.unwrap_or(false)
 		)
 		.await
 	};

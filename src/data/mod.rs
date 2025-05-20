@@ -28,6 +28,7 @@ pub struct DataStore {
 	collectionName: String,
 	vault: Arc<VaultClient>,
 	pub redis: redis::Client,
+	dev: bool
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -49,6 +50,8 @@ pub struct SystemConfiguration {
 	pub staticFileServerAddr: Option<String>,
 	pub devAuthServerAddr: Option<String>,
 	pub apiServerAddr: Option<String>,
+	#[serde(rename = "dev")]
+	pub devMode: Option<bool>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -58,7 +61,7 @@ pub struct Endpoint {
 }
 
 impl DataStore {
-	pub async fn new(username: &String, password: &String, epAddr: &String, collection: String, vault: Arc<VaultClient>, redisAddr: String) -> Result<Arc<Self>, mongodb::error::Error> {
+	pub async fn new(username: &String, password: &String, epAddr: &String, collection: String, vault: Arc<VaultClient>, redisAddr: String, dev: bool) -> Result<Arc<Self>, mongodb::error::Error> {
 		let mongoEP = format!(
 			"mongodb://{}:{}@{}/{}?directconnection=true&appName=gatekeeper&retryWrites=false",
 			username, password, epAddr, collection
@@ -80,6 +83,7 @@ impl DataStore {
 				vault,
 				serverEP: epAddr.clone(),
 				redis: redisClient,
+				dev
 			})),
 			Err(e) => Err(e),
 		}
@@ -334,7 +338,7 @@ impl DataStore {
 		// }).await
 	}
 	async fn reconnect(&self) -> Result<Client, mongodb::error::Error> {
-		let newCreds = self.vault.GetDBCredentials().await.unwrap();
+		let newCreds = self.vault.GetDBCredentials(self.dev).await.unwrap();
 
 		let mongoEP = format!(
 			"mongodb://{}:{}@{}/{}?directconnection=true&appName=gatekeeper&retryWrites=false",
