@@ -209,9 +209,9 @@ func (gc *GatekeeperClient) logInfo(extraKey string, extraValue interface{}, ent
 	name := runtimeFunc.ReplaceAllString(funcObj.Name(), "$1")
 
 	if extraKey != "" {
-		gc.logger.WithFields(logrus.Fields{extraKey: extraValue, "func": name, "line": line}).Infoln(entry)
+		gc.logger.WithFields(logrus.Fields{extraKey: extraValue, "func": name, "line": line, "originator": "gatekeeper-sdk"}).Infoln(entry)
 	} else {
-		gc.logger.WithFields(logrus.Fields{"func": name, "line": line}).Infoln(entry)
+		gc.logger.WithFields(logrus.Fields{"func": name, "line": line, "originator": "gatekeeper-sdk"}).Infoln(entry)
 	}
 }
 func (gc *GatekeeperClient) logWarn(extraKey string, extraValue interface{}, entry interface{}) {
@@ -221,9 +221,9 @@ func (gc *GatekeeperClient) logWarn(extraKey string, extraValue interface{}, ent
 	name := runtimeFunc.ReplaceAllString(funcObj.Name(), "$1")
 
 	if extraKey != "" {
-		gc.logger.WithFields(logrus.Fields{extraKey: extraValue, "func": name, "line": line}).Warnln(entry)
+		gc.logger.WithFields(logrus.Fields{extraKey: extraValue, "func": name, "line": line, "originator": "gatekeeper-sdk"}).Warnln(entry)
 	} else {
-		gc.logger.WithFields(logrus.Fields{"func": name, "line": line}).Warnln(entry)
+		gc.logger.WithFields(logrus.Fields{"func": name, "line": line, "originator": "gatekeeper-sdk"}).Warnln(entry)
 	}
 }
 func (gc *GatekeeperClient) logError(extraKey string, extraValue interface{}, entry interface{}) {
@@ -233,9 +233,9 @@ func (gc *GatekeeperClient) logError(extraKey string, extraValue interface{}, en
 	name := runtimeFunc.ReplaceAllString(funcObj.Name(), "$1")
 
 	if extraKey != "" {
-		gc.logger.WithFields(logrus.Fields{extraKey: extraValue, "func": name, "line": line}).Errorln(entry)
+		gc.logger.WithFields(logrus.Fields{extraKey: extraValue, "func": name, "line": line, "originator": "gatekeeper-sdk"}).Errorln(entry)
 	} else {
-		gc.logger.WithFields(logrus.Fields{"func": name, "line": line}).Errorln(entry)
+		gc.logger.WithFields(logrus.Fields{"func": name, "line": line, "originator": "gatekeeper-sdk"}).Errorln(entry)
 	}
 }
 func (gc *GatekeeperClient) credsFileWatcher() {
