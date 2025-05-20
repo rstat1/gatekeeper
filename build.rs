@@ -16,9 +16,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		.build_transport(false)
 		.file_descriptor_set_path(gen_file_path.clone() + "/descriptors.bin")
 		.out_dir(gen_file_path.clone())
+		.field_attribute(".gatekeeper.config.v1.ServiceCredentials.expiresAt", "#[serde(rename = \"expiresAt\")]")
+		.field_attribute(".gatekeeper.config.v1.ServiceCredentials.issuerCert", "#[serde(rename = \"issuerCert\")]")
+		.field_attribute(".gatekeeper.endpoint_manager.v1.NewServiceEndpoint.serviceName", "#[serde(rename = \"serviceName\")]")
+		.field_attribute(".gatekeeper.endpoint_manager.v1.NewServiceEndpoint.endpointName", "#[serde(rename = \"endpointName\")]")
+		.field_attribute(".gatekeeper.endpoint_manager.v1.NewServiceEndpoint.healthCheckRoute", "#[serde(rename = \"healthCheckRoute\")]")
+		.field_attribute(
+			".gatekeeper.endpoint_manager.v1.NewServiceEndpoint.clientRunningInKubernetes",
+			"#[serde(rename = \"clientRunningInKubernetes\")]",
+		)
 		.message_attribute("Alias", "#[derive(serde::Serialize, serde::Deserialize)]")
 		.message_attribute("Service", "#[derive(serde::Serialize, serde::Deserialize)]")
 		.message_attribute("Namespace", "#[derive(serde::Serialize, serde::Deserialize)]")
+		.message_attribute("ServiceCredentials", "#[derive(serde::Serialize, serde::Deserialize)]")
+		.message_attribute("NewServiceEndpoint", "#[derive(serde::Serialize, serde::Deserialize)]")
 		.compile_protos(
 			&["src/services/proto/types.proto", "src/services/proto/EndpointManager.proto", "src/services/proto/ConfigService.proto"],
 			&["src/services/proto"],
