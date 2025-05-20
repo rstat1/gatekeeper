@@ -33,7 +33,10 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, warn};
 use uuid::Uuid;
 
-use super::{cert_svc::CertManagerSvc, v1::NewServiceEndpoint};
+use super::{
+	cert_svc::CertManagerSvc,
+	v1::{NewServiceEndpoint, ServiceCredentials},
+};
 
 pub trait RemoveElem<T> {
 	fn remove_elem<F>(&mut self, predicate: F) -> Option<T>
@@ -207,7 +210,7 @@ impl EndpointManagerImpl {
 				}
 			}
 			Err(e) => {
-				error!("{:?}", e);
+				error!("RegisterServiceEndpoint TLE: {:?}", e);
 				return Err(e.to_string());
 			}
 		}
@@ -261,7 +264,7 @@ impl EndpointManagerImpl {
 				}
 			}
 			Err(e) => {
-				error!("{:?}", e);
+				error!("AddClientDeviceToPingerList TLE: {:?}", e);
 				return Err(e.to_string());
 			}
 		}
@@ -285,7 +288,7 @@ impl EndpointManagerImpl {
 				return None;
 			}
 			Err(e) => {
-				error!("{:?}", e)
+				error!("GetServiceEndpoint TLE: {:?}", e)
 			}
 		}
 		None
@@ -305,14 +308,14 @@ impl EndpointManagerImpl {
 				Some(k8sSvcs)
 			}
 			Err(e) => {
-				error!("{:?}", e);
+				error!("GetK8SEndpoints TLE: {:?}", e);
 				None
 			}
 		}
 	}
 	pub fn RemoveServiceEndpoint(&self, name: &String, endpoint: SocketAddr) {
 		let epMap = self.epMap.try_lock();
-		
+
 		match epMap {
 			Ok(mut m) => {
 				if let Some(eps) = m.get_mut(name) {
@@ -321,7 +324,7 @@ impl EndpointManagerImpl {
 					}
 				}
 			}
-			Err(e) => error!("{:?}", e),
+			Err(e) => error!("RemoveServiceEndpoint TLE: {:?}", e),
 		}
 	}
 	pub fn AddServiceToKnownList(&self, newSvc: &Service) {
@@ -332,7 +335,7 @@ impl EndpointManagerImpl {
 					svcList.push(newSvc.clone());
 				}
 			}
-			Err(e) => error!("{:?}", e),
+			Err(e) => error!("AddServiceToKnownList TLE: {:?}", e),
 		}
 	}
 
@@ -409,7 +412,11 @@ impl HealthChecker {
 											}
 										}
 										Err(e) => {
-											error!("incorrect response, adding endpoint or device '{key}' to removal list: {:?}", e);
+											error!(
+												"incorrect response, adding endpoint or device '{}' to removal list: {:?}",
+												rep.epID.as_ref().unwrap_or(rep.deviceID.as_ref().unwrap_or(&"".to_string())),
+												e
+											);
 											to_remove.push(rep.epID.as_ref().unwrap_or(rep.deviceID.as_ref().unwrap_or(&"".to_string())).clone());
 										}
 									}
@@ -427,7 +434,7 @@ impl HealthChecker {
 						}
 					}
 					Err(e) => {
-						error!("{:?}", e)
+						error!("hc: {:?}", e)
 					}
 				}
 			}
@@ -442,7 +449,7 @@ impl CertChecker {
 				let mut to_renew = Vec::default();
 				if let Some(k8sEPs) = self_clone.client.GetK8SEndpoints() {
 					for ep in k8sEPs {
-						match self_clone.client.certManSvc.IsCertificateExpired(&ep.serviceName).await {
+						match self_clone.client.certManSvc.IsCertificateExpired(&ep.serviceName, true).await {
 							Ok(exp) => {
 								if exp {
 									to_renew.push(ep);
@@ -454,15 +461,22 @@ impl CertChecker {
 				}
 				for svc in to_renew {
 					match self_clone.client.certManSvc.GenerateServiceCert(&svc.serviceName, true).await {
-						Ok(c) => self_clone.SendNewCredsToEP(svc, c, gkCert.clone()).await,
+						Ok(c) => {
+							let ca_chain = c.ca_chain.unwrap();
+							let x = ca_chain.iter().fold(String::new(), |acc, i| acc + "\n" + i);
+							let sc = ServiceCredentials { ca_cert: x, certificate: c.certificate, expires_at: c.expiration.unwrap_or(0), issuer_cert: c.issuing_ca, private_key: c.private_key };
+
+							self_clone.SendNewCredsToEP(svc, sc, gkCert.clone()).await;
+						}
 						Err(_) => todo!(),
 					}
 				}
+
 				tokio::time::sleep(Duration::from_secs(86400)).await;
 			}
 		});
 	}
-	async fn SendNewCredsToEP(self: &Arc<Self>, rep: RegisteredEndpoint, newCreds: VaultCertificate, gkCert: Arc<VaultCertificate>) {
+	async fn SendNewCredsToEP(self: &Arc<Self>, rep: RegisteredEndpoint, newCreds: ServiceCredentials, gkCert: Arc<VaultCertificate>) {
 		let caChain = gkCert.ca_chain.as_ref().unwrap();
 		let cert = X509::from_pem(&Bytes::from(gkCert.certificate.clone())).unwrap();
 		let caInt = X509::from_pem(&Bytes::from(caChain[0].clone())).unwrap();
@@ -483,19 +497,24 @@ impl CertChecker {
 
 		match connector.get_http_session(&peer).await {
 			Ok((mut http, _reused)) => {
+				let certJSON = serde_json::to_string(&newCreds).unwrap();
 				let mut new_request = RequestHeader::build("POST", hcr.path().as_bytes(), None).unwrap();
-				new_request.insert_header("Host", rep.serviceName.clone()).unwrap();
+				new_request.insert_header(http::header::HOST, rep.serviceName.clone()).unwrap();
+				new_request.insert_header(http::header::CONTENT_LENGTH, certJSON.len()).unwrap();
 				http.write_request_header(Box::new(new_request)).await.unwrap();
 
-				let certJSON = serde_json::to_string(&newCreds).unwrap();
-				let _ = http.write_body(certJSON.as_bytes()).await;
-
+				http.write_body(certJSON.as_bytes()).await.unwrap();
 				http.finish_body().await.unwrap();
+
 				http.read_response().await.unwrap();
 				let mut response_body = String::new();
 				while let Some(chunk) = http.read_body_ref().await.unwrap() {
 					response_body.push_str(&String::from_utf8_lossy(&chunk));
-					if response_body != "ok" {}
+					if response_body != "ok" {
+						//TODO: Alert the admin some how
+						//TODO: How to handle these failures
+						error!("unexpected response received from client: {}", response_body);
+					}
 				}
 			}
 			Err(_) => {}
