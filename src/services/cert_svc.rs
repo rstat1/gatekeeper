@@ -87,13 +87,13 @@ impl CertManagerSvc {
 		match certResult {
 			Ok(cert) => {
 				let mut certToSave = cert.clone();
-				if serviceName != &"gatekeeper".to_string() || saveToVault == false {
+				if serviceName != &"gatekeeper".to_string() && saveToVault == false {
 					certToSave.private_key = "".to_string();
 				}
 				let certJSON = serde_json::to_string(&certToSave).unwrap();
 
 				if saveToVault {
-					let newCreds = format!("base64:{}", engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).encode(certJSON));
+					let newCreds = format!("base64:{}", engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).encode(&certJSON));
 					self.vault.WriteValueToKV(&serviceName.as_str(), "credentials", newCreds.as_str(), "gatekeeper-credentials").await?;
 					Ok(cert)
 				} else {
@@ -107,27 +107,46 @@ impl CertManagerSvc {
 			Err(e) => Err(e),
 		}
 	}
-	pub async fn GetExistingServiceCert(&self, serviceName: String) -> Result<Certificate, String> {
-		let certPathStr = format!("certs/svcs/{}.cert", serviceName);
-		let certPath = Path::new(certPathStr.as_str());
-		if certPath.exists() {
-			let conf_file = std::fs::read_to_string(certPath);
-			match conf_file {
-				Ok(file) => match self.vault.Decrypt("platform", file.as_str()).await {
-					Ok(r) => {
-						let key_decoded = engine::GeneralPurpose::new(&alphabet::STANDARD, general_purpose::PAD).decode(r.plaintext).unwrap();
-						Ok::<Certificate, String>(serde_json::from_slice(&key_decoded).unwrap())
+	pub async fn GetExistingServiceCert(&self, serviceName: String, fromVault: bool) -> Result<Certificate, String> {
+		if fromVault {
+			match self.vault.ReadValueFromKV(&serviceName.as_str(), "gatekeeper-credentials").await {
+				Ok(c) => {
+					let value = c.as_object().unwrap();
+					let mut credsStr = value["credentials"].as_str().unwrap();
+					credsStr = credsStr.strip_prefix("base64:").unwrap();
+					match engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).decode(credsStr) {
+						Ok(v) => {
+							return Ok::<Certificate, String>(serde_json::from_slice(&v).unwrap());
+						}
+						Err(e) => {
+							return Err(e.to_string());
+						}
 					}
-					Err(e) => Err(e),
-				},
-				Err(e) => panic!("{:?}", e),
+				}
+				Err(_) => todo!(),
 			}
 		} else {
-			Err(format!("cert for service {} does not exist", serviceName))
+			let certPathStr = format!("certs/svcs/{}.cert", serviceName);
+			let certPath = Path::new(certPathStr.as_str());
+			if certPath.exists() {
+				let cert_file = std::fs::read_to_string(certPath);
+				match cert_file {
+					Ok(file) => match self.vault.Decrypt("platform", file.as_str()).await {
+						Ok(r) => {
+							let key_decoded = engine::GeneralPurpose::new(&alphabet::STANDARD, general_purpose::PAD).decode(r.plaintext).unwrap();
+							Ok::<Certificate, String>(serde_json::from_slice(&key_decoded).unwrap())
+						}
+						Err(e) => Err(e),
+					},
+					Err(e) => panic!("{:?}", e),
+				}
+			} else {
+				Err(format!("cert for service {} does not exist", serviceName))
+			}
 		}
 	}
 	pub async fn SignWithGatekeeperCert(&self, toSign: String) -> Result<String, String> {
-		match self.GetExistingServiceCert("gatekeeper".to_string()).await {
+		match self.GetExistingServiceCert("gatekeeper".to_string(), false).await {
 			Ok(c) => {
 				let key = SecretKey::from_sec1_pem(&c.private_key.as_str()).unwrap();
 				let sk = SigningKey::from(key);
@@ -145,7 +164,7 @@ impl CertManagerSvc {
 			return Err("one or more invalid arguments provided".to_string());
 		}
 
-		match self.GetExistingServiceCert(serviceName).await {
+		match self.GetExistingServiceCert(serviceName, false).await {
 			Ok(c) => match parse_x509_pem(c.certificate.as_bytes()) {
 				Ok(cert) => match cert.1.parse_x509() {
 					Ok(parsed) => {
@@ -168,20 +187,21 @@ impl CertManagerSvc {
 			Err(e) => Err(format!("GetExistingServiceCert error: {e}")),
 		}
 	}
-	pub async fn IsCertificateExpired(&self, serviceName: &String) -> Result<bool, String> {
-		match self.GetExistingServiceCert(serviceName.clone()).await {
+	pub async fn IsCertificateExpired(&self, serviceName: &String, fromVault: bool) -> Result<bool, String> {
+		match self.GetExistingServiceCert(serviceName.clone(), fromVault).await {
 			Ok(c) => {
-				let currentTime: u64 = Utc::now().timestamp().try_into().unwrap();
-				let certExpireTime: u64 = c.expiration.unwrap_or_default();
+				let certExpireTime: i64 = c.expiration.unwrap_or_default().try_into().unwrap_or(0);
+				let mut currentTime = Utc::now();
 
-				debug!("current time: {currentTime}, certExpireTime: {certExpireTime}");
-
-				let currentTimePlus5: u64 = Utc::now().checked_add_days(chrono::Days::new(5)).unwrap().timestamp().try_into().unwrap();
-				if currentTimePlus5 == certExpireTime || currentTimePlus5 > certExpireTime {
-					return Ok(true);
+				for _ in 1..6 {
+					currentTime = currentTime.checked_add_days(chrono::Days::new(1)).unwrap();
+					debug!("current time: {}, certExpireTime: {certExpireTime}", currentTime.timestamp());
+					if currentTime.timestamp() >= certExpireTime {
+						return Ok(true);
+					}
 				}
 
-				Ok(currentTime > certExpireTime)
+				Ok(false)
 			}
 			Err(e) => Err(e),
 		}
