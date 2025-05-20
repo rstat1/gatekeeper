@@ -314,8 +314,12 @@ impl VaultClient {
 			None => Err("no init token".to_string()),
 		}
 	}
-	pub async fn GetDBCredentials(&self) -> Result<DBCredentials, String> {
-		let credsReq = CreateDBCredsRequest::builder().role("platform-service").build().unwrap();
+	pub async fn GetDBCredentials(&self, dev: bool) -> Result<DBCredentials, String> {
+		let mut role: String = "platform-service".to_string();
+		if dev {
+			role = "platform-dev".to_string();
+		}
+		let credsReq = CreateDBCredsRequest::builder().role(role).build().unwrap();
 		let result = credsReq.with_middleware(&self.atm).exec(&self.httpClient).await;
 		match result {
 			Ok(r) => {
