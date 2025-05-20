@@ -18,10 +18,10 @@ type endpointServicesServer struct {
 	deviceID        string
 	epsServer       *http.Server
 	gatekeeper      *GatekeeperClient
-	handleCertRenew func(v1.NewServiceResponse)
+	handleCertRenew func(v1.ServiceCredentials)
 }
 
-func newEndpointServiceServer(forClient bool, deviceID string, gkc *GatekeeperClient, handleCertRenew func(v1.NewServiceResponse)) *endpointServicesServer {
+func newEndpointServiceServer(forClient bool, deviceID string, gkc *GatekeeperClient, handleCertRenew func(v1.ServiceCredentials)) *endpointServicesServer {
 	return &endpointServicesServer{
 		gatekeeper:      gkc,
 		isEDC:           forClient,
@@ -34,9 +34,9 @@ func (ess *endpointServicesServer) ListenAndServe(port int) error {
 	gkCreds := ess.gatekeeper.GetCredentials()
 
 	ca := x509.NewCertPool()
-	ca.AppendCertsFromPEM([]byte(gkCreds.Cert.CaCert))
+	ca.AppendCertsFromPEM([]byte(gkCreds.CaCert))
 
-	cert, err := tls.X509KeyPair([]byte(gkCreds.Cert.Certificate), []byte(gkCreds.Cert.PrivateKey))
+	cert, err := tls.X509KeyPair([]byte(gkCreds.Certificate), []byte(gkCreds.PrivateKey))
 	if err != nil {
 		panic(err)
 	}
@@ -105,7 +105,7 @@ func (ess *endpointServicesServer) signToken(w http.ResponseWriter, r *http.Requ
 }
 func (ess *endpointServicesServer) renewCert(w http.ResponseWriter, r *http.Request) {
 	if newCreds, e := io.ReadAll(r.Body); e == nil {
-		var nsr v1.NewServiceResponse
+		var nsr v1.ServiceCredentials
 		if err := protojson.Unmarshal(newCreds, &nsr); err == nil {
 			ess.handleCertRenew(nsr)
 			w.Write([]byte("ok"))

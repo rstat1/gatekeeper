@@ -168,8 +168,8 @@ func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string,
 }
 
 // GetCredentials returns already loaded Gatekeeper credentials.
-func (gc *GatekeeperClient) GetCredentials() cs.NewServiceResponse {
-	return gc.credentials
+func (gc *GatekeeperClient) GetCredentials() *cs.ServiceCredentials {
+	return gc.credentials.Cert
 }
 
 func (gc *GatekeeperClient) registerEPInternal(serviceName, endpointName, address string, tags []string) error {
@@ -286,12 +286,12 @@ func (gc *GatekeeperClient) certRenewTimer() {
 		}
 	}
 }
-func (gc *GatekeeperClient) newCredsReceievedFromGK(credentials cs.NewServiceResponse) {
+func (gc *GatekeeperClient) newCredsReceievedFromGK(credentials cs.ServiceCredentials) {
 	err := ForceExternalSecretSync(gc.config.ServiceName)
 	if err != nil {
 		gc.logWarn("action", "ForceExternalSecretSync", err)
 	}
-	gc.credentials = credentials
+	gc.credentials.Cert = &credentials
 	gc.config.CredentialsRenewedHandler()
 }
 func (gc *GatekeeperClient) renewCredentials() {
