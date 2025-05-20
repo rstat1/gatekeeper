@@ -10,8 +10,8 @@
 #![allow(nonstandard_style)]
 
 use pingora::{listeners::tls::TlsSettings, prelude::*, services::listening::Service as ListeningService};
-use tracing::warn;
 use std::{fs, path::Path, sync::Arc};
+use tracing::warn;
 use tracing::{debug, info};
 
 use gatekeeper::data::*;
@@ -109,19 +109,6 @@ fn main() {
 	tls_settings.enable_h2();
 	// tls_settings.enable_ocsp_stapling();
 
-	let async_check_cert_expiry = async { cmSvc.IsCertificateExpired(&"gatekeeper".to_string()).await };
-	match rt.block_on(async_check_cert_expiry) {
-		Ok(ac) => {
-			if ac {
-				warn!("gatekeeper API service cert has expired, forcing renewal...");
-				let _ = fs::remove_file("certs/svcs/gatekeeper.cert");
-			}
-		}
-		Err(e) => {
-			panic!("cert expiry check failed: {}", e)
-		}
-	}
-
 	let certPath = Path::new("certs/svcs/gatekeeper.cert");
 
 	if !certPath.exists() {
@@ -131,10 +118,28 @@ fn main() {
 			Err(e) => panic!("{:?}", e),
 		}
 	} else {
-		let async_get_server_cert = async { cmSvc.GetExistingServiceCert("gatekeeper".to_string()).await };
-		match rt.block_on(async_get_server_cert) {
-			Ok(cert) => apiServiceCert = Arc::new(cert),
-			Err(e) => panic!("{:?}", e),
+		let async_check_cert_expiry = async { cmSvc.IsCertificateExpired(&"gatekeeper".to_string(), false).await };
+		match rt.block_on(async_check_cert_expiry) {
+			Ok(ac) => {
+				if ac {
+					warn!("gatekeeper API service cert has expired, forcing renewal...");
+					let _ = fs::remove_file("certs/svcs/gatekeeper.cert");
+					let async_get_server_cert = async { cmSvc.GenerateServiceCert(&"gatekeeper".to_string(), false).await };
+					match rt.block_on(async_get_server_cert) {
+						Ok(cert) => apiServiceCert = Arc::new(cert),
+						Err(e) => panic!("{:?}", e),
+					}
+				} else {
+					let async_get_server_cert = async { cmSvc.GetExistingServiceCert("gatekeeper".to_string(), false).await };
+					match rt.block_on(async_get_server_cert) {
+						Ok(cert) => apiServiceCert = Arc::new(cert),
+						Err(e) => panic!("{:?}", e),
+					}
+				}
+			}
+			Err(e) => {
+				panic!("cert expiry check failed: {}", e)
+			}
 		}
 	}
 
