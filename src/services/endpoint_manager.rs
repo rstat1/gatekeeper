@@ -468,7 +468,7 @@ impl CertChecker {
 
 							self_clone.SendNewCredsToEP(svc, sc, gkCert.clone()).await;
 						}
-						Err(_) => todo!(),
+						Err(e) => error!(e),
 					}
 				}
 
@@ -517,7 +517,7 @@ impl CertChecker {
 					}
 				}
 			}
-			Err(_) => {}
+			Err(e) => error!("{}", e),
 		}
 	}
 }
