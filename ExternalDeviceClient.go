@@ -14,7 +14,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -104,7 +103,7 @@ func (edc *ExternalDeviceClient) Login(clientName string) error {
 		if e := json.Unmarshal(reqDetails, &dar); e != nil {
 			return e
 		}
-		privKeyBytes, _ := os.ReadFile(filepath.Base(os.Args[0]) + ".key")
+		privKeyBytes, _ := os.ReadFile(clientName + ".key")
 		if privKey, _ := pem.Decode(privKeyBytes); privKey != nil {
 			privateKey, err := x509.ParseECPrivateKey(privKey.Bytes)
 			if err != nil {
