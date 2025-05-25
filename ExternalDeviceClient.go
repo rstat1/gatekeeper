@@ -88,7 +88,7 @@ func NewExternalDeviceClient(config ExternalDeviceClientConfig, gkc *GatekeeperC
 // # Parameters
 //   - serviceURL should be a combo of the service's name and the namespace it belongs to
 //   - Example: gktest.test.alargerobot.dev
-func (edc *ExternalDeviceClient) Login() error {
+func (edc *ExternalDeviceClient) Login(clientName string) error {
 	var dar DeviceAuthRequest
 	req, _ := http.NewRequest("GET", "https://"+edc.serviceURL+"/device/auth/begin", http.NoBody)
 	req.Header.Add("Content-Type", DEVICE_API_CONTENT_TYPE)
