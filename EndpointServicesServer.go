@@ -32,18 +32,18 @@ func newEndpointServiceServer(forClient bool, deviceID string, gkc *GatekeeperCl
 }
 
 func (ess *endpointServicesServer) ListenAndServe(port int) error {
-	var gkCreds *v1.ServiceCredentials
+	var gkCreds v1.ServiceCredentials
 	if ess.isEDC {
 		creds, e := os.ReadFile("gatekeeper-credentials.json")
 		if e != nil {
 			panic(e)
 		}
-		e = protojson.Unmarshal(creds, gkCreds)
+		e = protojson.Unmarshal(creds, &gkCreds)
 		if e != nil {
 			panic(e)
 		}
 	} else {
-		gkCreds = ess.gatekeeper.GetCredentials()
+		gkCreds = *ess.gatekeeper.GetCredentials()
 
 	}
 
