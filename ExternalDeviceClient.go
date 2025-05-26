@@ -152,15 +152,17 @@ func (edc *ExternalDeviceClient) registerExternalClient() error {
 	req, _ := http.NewRequest("GET", "https://"+edc.serviceURL+"/device/activate_eps", bytes.NewReader(devReg))
 	req.Header.Add("Content-Type", DEVICE_API_CONTENT_TYPE)
 	req.Header.Add("Authorization", "Bearer "+edc.authToken)
-	resp, err := http.DefaultClient.Do(req)
-
-	if resp.StatusCode != 200 {
-		details, e := io.ReadAll(resp.Body)
-		if e != nil {
-			return e
+	if resp, err := http.DefaultClient.Do(req); err == nil {
+		if resp.StatusCode != 200 {
+			details, e := io.ReadAll(resp.Body)
+			if e != nil {
+				return e
+			}
+			return errors.New(string(details))
+		} else {
+			return nil
 		}
-		return errors.New(string(details))
+	} else {
+		return err
 	}
-
-	return err
 }
