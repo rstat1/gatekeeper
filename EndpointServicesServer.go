@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	v1 "go.alargerobot.dev/gatekeeper/sdk/rpc/config/v1"
@@ -32,27 +33,26 @@ func newEndpointServiceServer(forClient bool, deviceID string, gkc *GatekeeperCl
 }
 
 func (ess *endpointServicesServer) ListenAndServe(port int) error {
+	var ca = x509.NewCertPool()
 	var gkCreds v1.ServiceCredentials
+	var cert tls.Certificate
+
 	if ess.isEDC {
-		creds, e := os.ReadFile("gatekeeper-credentials.json")
-		if e != nil {
-			panic(e)
+		certPair, err := tls.LoadX509KeyPair(filepath.Base(os.Args[0])+".crt", filepath.Base(os.Args[0])+".key")
+		if err != nil {
+			panic(err)
 		}
-		e = protojson.Unmarshal(creds, &gkCreds)
-		if e != nil {
-			panic(e)
-		}
+		cert = certPair
+		caFileBytes, _ := os.ReadFile("gkca.pem")
+		ca.AppendCertsFromPEM([]byte(caFileBytes))
 	} else {
 		gkCreds = *ess.gatekeeper.GetCredentials()
-
-	}
-
-	ca := x509.NewCertPool()
-	ca.AppendCertsFromPEM([]byte(gkCreds.CaCert))
-
-	cert, err := tls.X509KeyPair([]byte(gkCreds.Certificate), []byte(gkCreds.PrivateKey))
-	if err != nil {
-		panic(err)
+		ca.AppendCertsFromPEM([]byte(gkCreds.CaCert))
+		certPair, err := tls.X509KeyPair([]byte(gkCreds.Certificate), []byte(gkCreds.PrivateKey))
+		if err != nil {
+			panic(err)
+		}
+		cert = certPair
 	}
 
 	tlsConf := tls.Config{
