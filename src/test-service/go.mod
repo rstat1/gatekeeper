@@ -5,7 +5,7 @@ go 1.24.1
 require (
 	github.com/husobee/vestigo v1.1.1
 	github.com/sirupsen/logrus v1.9.3
-	go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250520015148-739d0a4c7362
+	go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250527004144-681572004424
 )
 
 require (

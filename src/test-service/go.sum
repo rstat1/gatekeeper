@@ -29,6 +29,16 @@ go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250519223443-3c4f7bd7d2f4 h1:Tj2i83zh
 go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250519223443-3c4f7bd7d2f4/go.mod h1:h9VMo/Uj8Ie+y+nV1hIXel04LLcZ7bNIxhMThmAtCkw=
 go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250520015148-739d0a4c7362 h1:wYDQ3dG9BGkju0x/B2jK//miW7twue/qejdPwKUHskY=
 go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250520015148-739d0a4c7362/go.mod h1:h9VMo/Uj8Ie+y+nV1hIXel04LLcZ7bNIxhMThmAtCkw=
+go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250525220132-4e731cf03a06 h1:Av6HfKBTTZaMPeCZCY8sT3yVRlOyl6b0nmJ97bw5k9I=
+go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250525220132-4e731cf03a06/go.mod h1:h9VMo/Uj8Ie+y+nV1hIXel04LLcZ7bNIxhMThmAtCkw=
+go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250526005231-18ffe613f3c6 h1:QAIBd/oNW6bl2TDyqmkXBFw6OHT7AI1EkZMdTS3BZuI=
+go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250526005231-18ffe613f3c6/go.mod h1:h9VMo/Uj8Ie+y+nV1hIXel04LLcZ7bNIxhMThmAtCkw=
+go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250527000522-8d570634e57f h1:vF2IP2ufwBkWwZswwcCRsMA+avo7wNqNAVbjXwUsmeI=
+go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250527000522-8d570634e57f/go.mod h1:h9VMo/Uj8Ie+y+nV1hIXel04LLcZ7bNIxhMThmAtCkw=
+go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250527001259-df7e7a612f8d h1:/yEd5rXCBfjisMJK0tiIvMH2z/5br3Xo4h1/Z1b66JQ=
+go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250527001259-df7e7a612f8d/go.mod h1:h9VMo/Uj8Ie+y+nV1hIXel04LLcZ7bNIxhMThmAtCkw=
+go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250527004144-681572004424 h1:NJhJXfPUvFfxO+AT7LfrQlkrn2jsAYSAWIw6OiA9Lm4=
+go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250527004144-681572004424/go.mod h1:h9VMo/Uj8Ie+y+nV1hIXel04LLcZ7bNIxhMThmAtCkw=
 go.opentelemetry.io/auto/sdk v1.1.0 h1:cH53jehLUN6UFLY71z+NDOiNJqDdPRaXzTel0sJySYA=
 go.opentelemetry.io/auto/sdk v1.1.0/go.mod h1:3wSPjt5PWp2RhlCcmmOial7AvC4DQqZb7a7wCow3W8A=
 go.opentelemetry.io/otel v1.35.0 h1:xKWKPxrxB6OtMCbmMY021CqC45J+3Onta9MqjhnusiQ=

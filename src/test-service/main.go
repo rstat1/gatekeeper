@@ -18,21 +18,21 @@ func main() {
 
 	router.Add("GET", "/api/hoplite/current_time", current_time)
 	go func() {
-		err := http.ListenAndServe(common.GetOutboundIP()+":40001", router)
+		err := http.ListenAndServe(common.GetOutboundIP()+":17003", router)
 		if err != nil {
 			common.LogError("", err)
 		}
 	}()
 
 	gkc := sdk.NewGatekeeperClient(sdk.GatekeeperClientConfig{
-		EndpointServicesPort:        40002,
+		EndpointServicesPort:        17002,
 		GatekeeperAPIAddress:        "gatekeeper-dev.alargerobot.dev:2000",
 		ClientIsRunningOnKubernetes: true,
 		CredentialsRenewedHandler: func() {
 			common.LogInfo("", "", "this is where credential renewal would be handled, when not running in a k8s cluster.")
 		},
 	})
-	err := gkc.RegisterServiceEndpoint("timeservice", common.GetOutboundIP()+":40001", []string{})
+	err := gkc.RegisterServiceEndpoint("timeservice", common.GetOutboundIP()+":17003", []string{})
 	if err != nil {
 		panic(err)
 	}

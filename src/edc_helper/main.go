@@ -1,10 +1,10 @@
 package main
 
 import (
+	"edc_helper/common"
 	"encoding/json"
 	"errors"
 	"flag"
-	"edc_helper/common"
 	"os"
 	"os/signal"
 	"syscall"
@@ -22,6 +22,8 @@ func main() {
 	common.CommonProcessInit(false, false)
 
 	svcName := flag.String("clientProcessName", "", "set to the name of the process connecting to gatekeeper. Cannot be null")
+	flag.Parse()
+
 	if *svcName == "" {
 		panic(errors.New("clientProcessName MUST BE SET"))
 	}
@@ -37,6 +39,7 @@ func main() {
 	json.Unmarshal(confFile, &clientConfig)
 
 	edc := sdk.NewExternalDeviceClient(sdk.ExternalDeviceClientConfig{
+		ClientName:           *svcName,
 		ServiceURL:           clientConfig.ServerEndpoint,
 		EndpointServicesAddr: common.GetOutboundIP() + ":13337",
 		CertificateRenewalHandler: func(sc v1.ServiceCredentials) {
