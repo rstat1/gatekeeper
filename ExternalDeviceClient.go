@@ -145,7 +145,7 @@ func (edc *ExternalDeviceClient) registerExternalClient() error {
 	svcName := strings.Split(edc.serviceURL, ".")[0]
 
 	devReg, _ := json.Marshal(deviceRegistration{
-		ServicesAddr: "https://" + edc.epsAddr + "/ping",
+		ServicesAddr: edc.epsAddr,
 		DeviceID:     svcName + "-extdev-" + uuid.NewString(),
 	})
 
