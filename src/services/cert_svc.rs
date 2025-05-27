@@ -152,7 +152,7 @@ impl CertManagerSvc {
 				let sk = SigningKey::from(key);
 
 				match sk.sign_recoverable(toSign.as_bytes()) {
-					Ok(sig) => Ok(engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).encode(sig.0.to_der().as_bytes())),
+					Ok(sig) => Ok(engine::GeneralPurpose::new(&alphabet::STANDARD, general_purpose::PAD).encode(sig.0.to_der().as_bytes())),
 					Err(e) => Err(e.to_string()),
 				}
 			}

@@ -102,7 +102,7 @@ impl ExternalDeviceManager {
 		let exp = self.gkCertExp.unwrap_or(Utc::now().checked_add_days(Days::new(30)).unwrap_or_default().timestamp().try_into().unwrap());
 		match serde_json::to_string(&DeviceAuthToken { sub: serviceName.clone(), exp }) {
 			Ok(token) => match self.cm.SignWithGatekeeperCert(token.clone()).await {
-				Ok(sig) => Ok(format!("{}.{}", engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).encode(token), sig).to_string()),
+				Ok(sig) => Ok(format!("{}.{}", engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::PAD).encode(token), sig).to_string()),
 				Err(e) => Err(e),
 			},
 			Err(e) => Err(e.to_string()),
@@ -111,10 +111,11 @@ impl ExternalDeviceManager {
 	pub async fn VerifyDeviceToken(&self, token: &str, svc: &String) -> Result<bool, String> {
 		let parts: Vec<&str> = token.split('.').collect();
 
-		let msgDecoded = String::from_utf8(engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).decode(parts[0].to_string()).unwrap()).unwrap();
-		let sigDecoded = String::from_utf8(engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).decode(parts[1].to_string()).unwrap()).unwrap();
+		let msgDecoded = String::from_utf8(engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::PAD).decode(parts[0].to_string()).unwrap()).unwrap();
 
-		match self.cm.VerifySignature("gatekeeper".to_string(), &msgDecoded, &sigDecoded).await {
+		debug!("{}", parts[1]);
+
+		match self.cm.VerifySignature("gatekeeper".to_string(), &msgDecoded, &parts[1].to_string()).await {
 			Ok(r) => {
 				if r {
 					let currentTime: u64 = Utc::now().timestamp().try_into().unwrap();
@@ -211,7 +212,7 @@ impl ExternalDeviceManager {
 
 		if http_session.req_header().headers.contains_key("Authorization") {
 			let token = http_session.req_header().headers.get(AUTHORIZATION).unwrap().to_str().unwrap_or_default();
-			match self.VerifyDeviceToken(token, svc).await {
+			match self.VerifyDeviceToken(token.strip_prefix("Bearer ").unwrap_or(token), svc).await {
 				Ok(_) => {}
 				Err(e) => {
 					return self.ErrorResponse(e, "token verification failed", StatusCode::UNAUTHORIZED);
