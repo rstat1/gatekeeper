@@ -237,24 +237,24 @@ impl EndpointManagerImpl {
 		match epMap {
 			Ok(mut m) => {
 				if let Some(eps) = m.get_mut(&deviceID) {
-					debug!("added endpoint {} to service {} with hcr {}", &endpoint, service_name, &"/ping".to_string());
+					debug!("added endpoint {} to service {} with hcr {}", &endpoint, service_name, &format!("https://{}/ping", endpoint));
 					eps.push(RegisteredEndpoint {
 						serviceName: service_name.clone(),
 						address: endpoint.parse().unwrap(),
-						healthCheckRoute: "/ping".to_string(),
+						healthCheckRoute: format!("https://{}/ping", endpoint),
 						isExternalDevice: true,
 						deviceID: Some(deviceID),
 						epID: None,
 						runningOnK8S: false,
 					});
 				} else {
-					debug!("added new endpoint {} at {} with hcr {}", &deviceID, &endpoint, "/ping".to_string());
+					debug!("added new endpoint {} at {} with hcr {}", &deviceID, &endpoint, format!("https://{}/ping", endpoint));
 					m.insert(
 						deviceID.clone(),
 						vec![RegisteredEndpoint {
 							serviceName: service_name.clone(),
 							address: endpoint.parse().unwrap(),
-							healthCheckRoute: "/ping".to_string(),
+							healthCheckRoute: format!("https://{}/ping", endpoint),
 							isExternalDevice: true,
 							deviceID: Some(deviceID),
 							epID: None,
@@ -397,15 +397,13 @@ impl HealthChecker {
 												response_body.push_str(&String::from_utf8_lossy(&chunk));
 											}
 
-											if !rep.isExternalDevice {
-												if response_body != "pong" {
-													error!("incorrect response, adding endpoint '{key}' to removal list");
+											if response_body != "pong" {
+												if !rep.isExternalDevice {
+													error!("incorrect response, adding endpoint '{key}' to removal list, received response: {}", response_body);
 													to_remove.push(rep.epID.as_ref().unwrap().clone());
-												}
-											} else {
-												if let Some(devID) = &rep.deviceID {
-													if response_body != *devID {
-														error!("incorrect response, adding device '{key}' to removal list");
+												} else {
+													if let Some(devID) = &rep.deviceID {
+														error!("incorrect response, adding device '{key}' to removal list, received response: {}", response_body);
 														to_remove.push(devID.clone());
 													}
 												}
