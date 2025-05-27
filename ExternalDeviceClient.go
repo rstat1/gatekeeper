@@ -27,12 +27,22 @@ type ExternalDeviceClient struct {
 	serviceURL string
 	authToken  string
 	epsAddr    string
+	clientName string
 	epsServer  *endpointServicesServer
 }
 
 type ExternalDeviceClientConfig struct {
-	ServiceURL                string
-	EndpointServicesAddr      string
+	//Name of the current process that wants to connect, or if the helper is being used
+	//name of the process for which the helper is being used for
+	ClientName string
+	//The full URL to service this client is connecting to
+	ServiceURL string
+	//Should be formated: <ip-address:port> and is the address/port that Gatekeeper will use to
+	//contact the client when necessary (currently just used for provisioning new certifcates
+	//when they expire).
+	EndpointServicesAddr string
+	//This function will be called when Gatekeepr renews the credentials for a service, with
+	//a copy of the new credentials in tow.
 	CertificateRenewalHandler func(v1.ServiceCredentials)
 }
 
@@ -47,11 +57,8 @@ type deviceRegistration struct {
 // external device manager
 //
 // # Parameters
-//
-//   - serviceURL should be the full URL to service this client is connecting to.
-//   - endpointServicesAddr should be formated: <ip-address:port> and is the address/port that
-//     Gatekeeper will use the contact the client when necessary (currently just used for provisioning
-//     new certifcates when they expire).
+//   - config: An ExternalDeviceClientConfig struct that contains various settings for configuring
+//     the connection to Gatekeeper.
 func NewExternalDeviceClient(config ExternalDeviceClientConfig, gkc *GatekeeperClient) *ExternalDeviceClient {
 	svcName := strings.Split(config.ServiceURL, ".")[0]
 	deviceID := svcName + "-extdev-" + uuid.NewString()
@@ -83,11 +90,7 @@ func NewExternalDeviceClient(config ExternalDeviceClientConfig, gkc *GatekeeperC
 // verifcation is successful a signed token will be returned by the server that said device can use
 // for authentication. Registers the device's endpoint services server (created by NewExternalDevice
 // client) if successful.
-//
-// # Parameters
-//   - serviceURL should be a combo of the service's name and the namespace it belongs to
-//   - Example: gktest.test.alargerobot.dev
-func (edc *ExternalDeviceClient) Login(clientName string) error {
+func (edc *ExternalDeviceClient) Login() error {
 	var dar DeviceAuthRequest
 	req, _ := http.NewRequest("GET", "https://"+edc.serviceURL+"/device/auth/begin", http.NoBody)
 	req.Header.Add("Content-Type", DEVICE_API_CONTENT_TYPE)
@@ -103,7 +106,7 @@ func (edc *ExternalDeviceClient) Login(clientName string) error {
 		if e := json.Unmarshal(reqDetails, &dar); e != nil {
 			return e
 		}
-		privKeyBytes, _ := os.ReadFile(clientName + ".key")
+		privKeyBytes, _ := os.ReadFile(edc.clientName + ".key")
 		if privKey, _ := pem.Decode(privKeyBytes); privKey != nil {
 			privateKey, err := x509.ParseECPrivateKey(privKey.Bytes)
 			if err != nil {
