@@ -7,7 +7,7 @@ require github.com/sirupsen/logrus v1.9.3
 require (
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250527004144-681572004424 // indirect
+	go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250527004144-681572004424
 	golang.org/x/net v0.34.0 // indirect
 	golang.org/x/sys v0.29.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
