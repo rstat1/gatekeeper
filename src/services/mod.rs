@@ -5,6 +5,15 @@
 * found in the included LICENSE file.
 */
 
+pub mod config_svc;
+pub mod cert_svc;
+pub mod ext_device;
+pub mod endpoint_manager;
+pub mod grpc;
+pub mod static_file_server;
+pub mod auth_service;
+pub mod supported_ca;
+
 #[macro_export]
 macro_rules! grpc_include {
 	($package: tt) => {
@@ -18,13 +27,6 @@ macro_rules! grpc_fd_set {
 		include_bytes!(concat!("proto/generated", concat!("/", $package, ".bin")))
 	};
 }
-
-pub mod config_svc;
-pub mod cert_svc;
-pub mod ext_device;
-pub mod endpoint_manager;
-pub mod grpc;
-pub mod static_file_server;
 
 pub mod v1 {
 	grpc_include!("gatekeeper.config.v1");

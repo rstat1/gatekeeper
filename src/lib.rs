@@ -13,6 +13,7 @@ pub mod data;
 pub mod gw;
 pub mod services;
 pub mod vault;
+pub mod cloudflare_api;
 
 const ERROR_PAGE: &'static str = include_str!("assets/error_page.html");
 

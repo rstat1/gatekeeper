@@ -11,9 +11,10 @@
 
 use pingora::{listeners::tls::TlsSettings, prelude::*, services::listening::Service as ListeningService};
 use std::{fs, path::Path, sync::Arc};
-use tracing::warn;
 use tracing::{debug, info};
+use tracing::{error, warn};
 
+use gatekeeper::cloudflare_api::CloudflareAPIClient;
 use gatekeeper::data::*;
 use gatekeeper::gw::*;
 use gatekeeper::services::{
@@ -26,6 +27,7 @@ fn main() {
 	tracing_subscriber::fmt::init();
 	info!("starting gatekeeper...");
 
+	let devMode: bool;
 	let db: Arc<DataStore>;
 	let dbCreds: DBCredentials;
 	let apiImpl: ConfigServiceImpl;
@@ -35,10 +37,12 @@ fn main() {
 	let apiServiceCert: Arc<Certificate>;
 	let srImpl: Arc<EndpointManagerImpl>;
 	let svcsList: Vec<Service>;
+	let cfAPI: Arc<CloudflareAPIClient>;
 	let mut server = Server::new(None).unwrap();
 	let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
 
 	server.bootstrap();
+
 
 	let conf_file = std::fs::read_to_string("gatekeeper_config");
 	match conf_file {
@@ -48,23 +52,44 @@ fn main() {
 		Err(e) => panic!("{:?}", e),
 	}
 
+	devMode = conf.devMode.unwrap_or(false);
+
+	if let Some(dev) = conf.devMode {
+		if dev {
+			info!("...in dev mode")
+		}
+	}
+
 	let path = Path::new("certs/svcs");
 	if !path.exists() {
 		fs::create_dir_all(path).unwrap();
 	}
 
-	let async_vc_init = async { VaultClient::new(&conf.vaultEndpoint).await };
+	let async_vc_init = async { VaultClient::new(&conf.vaultEndpoint, devMode).await };
 	match rt.block_on(async_vc_init) {
 		Ok(c) => {
-			debug!("vault client init");
+			info!("vault client init");
 			vault = c
 		}
 		Err(e) => panic!("{:?}", e),
 	}
 
-	let get_db_creds = async { vault.GetDBCredentials(conf.devMode.unwrap_or(false)).await };
+	let get_db_creds = async { vault.GetDBCredentials(devMode).await };
 	match rt.block_on(get_db_creds) {
-		Ok(dbs) => dbCreds = dbs,
+		Ok(dbs) => {
+			debug!("got db creds");
+			dbCreds = dbs
+		}
+		Err(e) => panic!("{:?}", e),
+	}
+
+	let get_cf_api_token = async { vault.ReadValueFromKV("cf_api_token", "gatekeeper").await };
+	match rt.block_on(get_cf_api_token) {
+		Ok(token) => {
+			let value = token.as_object().unwrap();
+			cfAPI = CloudflareAPIClient::new(value["token"].as_str().unwrap().to_string(), value["zoneID"].as_str().unwrap().to_string());
+			info!("cfapi client init")
+		}
 		Err(e) => panic!("{:?}", e),
 	}
 
@@ -76,13 +101,13 @@ fn main() {
 			conf.collectionName,
 			vault.clone(),
 			conf.redisServerAddress.clone(),
-			conf.devMode.unwrap_or(false)
+			devMode,
 		)
 		.await
 	};
 	match rt.block_on(async_db_init) {
 		Ok(ds) => {
-			debug!("mongodb client init");
+			info!("mongodb client init");
 			db = ds
 		}
 		Err(e) => panic!("{:?}", e),
@@ -90,21 +115,25 @@ fn main() {
 
 	let async_get_svcs = async { db.GetAllServices().await };
 	match rt.block_on(async_get_svcs) {
-		Ok(list) => svcsList = list,
+		Ok(list) => {
+			debug!("got service list");
+			svcsList = list
+		}
 		Err(e) => panic!("{:?}", e),
 	}
 
-	let async_ac_init = async { CertManagerSvc::new(vault.clone()).await };
+	let async_ac_init = async { CertManagerSvc::new(vault.clone(), cfAPI.clone(), devMode, conf.acmeContactEmail, conf.certCheckInterval.unwrap_or(3600).into()).await };
 	match rt.block_on(async_ac_init) {
-		Ok(ac) => cmSvc = Arc::new(ac),
+		Ok(ac) => {
+			info!("cmsvc init");
+			cmSvc = ac
+		}
 		Err(e) => {
 			panic!("cert_svc init failed: {}", e)
 		}
 	}
 
-	apiImpl = ConfigServiceImpl::new(db.clone(), cmSvc.clone());
-
-	let dynamic_cert = DynamicCert::new();
+	let dynamic_cert = DynamicCert::new(cmSvc.clone());
 	let mut tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
 	tls_settings.enable_h2();
 	// tls_settings.enable_ocsp_stapling();
@@ -143,11 +172,16 @@ fn main() {
 		}
 	}
 
-	let async_sri_init = async { EndpointManagerImpl::new(db.clone(), svcsList.clone(), conf.healthCheckInterval, apiServiceCert.clone(), cmSvc.clone()).await };
+	let async_sri_init = async { EndpointManagerImpl::new(db.clone(), svcsList.clone(), conf.healthCheckInterval, apiServiceCert.clone(), cmSvc.clone(), conf.certCheckInterval).await };
 	match rt.block_on(async_sri_init) {
-		Ok(sri) => srImpl = sri,
+		Ok(sri) => {
+			info!("epmgr init");
+			srImpl = sri
+		}
 		Err(e) => panic!("{:?}", e),
 	}
+
+	apiImpl = ConfigServiceImpl::new(db.clone(), cmSvc.clone(), srImpl.clone());
 
 	let mut staticServer: ListeningService<StaticFileServer> = StaticFileServer::Service();
 	staticServer.add_tcp(conf.staticFileServerAddr.clone().unwrap_or("0.0.0.0:10000".to_string()).as_str());

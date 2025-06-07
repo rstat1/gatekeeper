@@ -5,12 +5,16 @@
 * found in the included LICENSE file.
 */
 
+use tracing::error;
 use uuid::Uuid;
 
 use super::{cert_svc::CertManagerSvc, v1::*};
 use crate::{
 	data::DataStore,
-	services::v1::{Namespace, Service},
+	services::{
+		endpoint_manager::EndpointManagerImpl,
+		v1::{service_endpoint_request::Name, Namespace, Service},
+	},
 	vault::Certificate,
 };
 use std::sync::Arc;
@@ -18,22 +22,22 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct ConfigServiceImpl {
 	db: Arc<DataStore>,
-	certMgr: Arc<CertManagerSvc>,
+	cmSvc: Arc<CertManagerSvc>,
+	epMgr: Arc<EndpointManagerImpl>,
 }
 
 impl ConfigServiceImpl {
-	pub fn new(db: Arc<DataStore>, certMgr: Arc<CertManagerSvc>) -> Self {
-		ConfigServiceImpl { db, certMgr }
+	pub fn new(db: Arc<DataStore>, cmSvc: Arc<CertManagerSvc>, epMgr: Arc<EndpointManagerImpl>) -> Self {
+		ConfigServiceImpl { db, cmSvc, epMgr }
 	}
 	pub async fn NewService(&self, svc: &Service, parentDomain: &String) -> Result<(String, Certificate), String> {
+		let svcCert: Certificate;
 		let mut svc = svc.clone();
 		svc.id = Uuid::now_v7().to_string();
 
-		let svcCert: Certificate;
-
 		match self.db.GetNamespaceByName(parentDomain).await {
 			Ok(Some(_)) => {
-				match self.certMgr.GenerateServiceCert(&svc.name, false).await {
+				match self.cmSvc.GenerateServiceCert(&svc.name, true).await {
 					Ok(c) => svcCert = c,
 					Err(e) => return Err(e),
 				};
@@ -58,6 +62,16 @@ impl ConfigServiceImpl {
 		match self.db.NewNamespace(&domain).await {
 			Ok(success) => {
 				if success {
+					let domain_id = domain.id.clone();
+					if domain.gatekeeper_managed_certs {
+						let cert_mgr = self.cmSvc.clone();
+						tokio::spawn(async move {
+							let r = cert_mgr.GenerateACMECert(&domain.base, &domain_id, None).await;
+							if r.is_err() {
+								error!("{}", r.unwrap_err());
+							}
+						});
+					}
 					return Ok(domain.id);
 				}
 				Err("already exists".to_string())
@@ -106,13 +120,46 @@ impl ConfigServiceImpl {
 		}
 	}
 	pub async fn DeleteNamespace(&self, id: &String) -> Result<bool, String> {
-		self.db.DeleteDomain(id).await.map_err(|e| String::from(e.to_string()))
+		match self.db.DeleteDomain(id).await {
+			Ok(success) => {
+				if success {
+					match self.cmSvc.RevokeNSCert(id).await {
+						Ok(()) => Ok(true),
+						Err(e) => {
+							error!("{e}");
+							Err(e)
+						}
+					}
+				} else {
+					Ok(false)
+				}
+			}
+			Err(e) => {
+				if let Some(actualErr) = e.get_custom::<String>() {
+					error!("{actualErr}");
+					Err(actualErr.to_string())
+				} else {
+					error!("this is why error STRINGS are superior to error structs {e}");
+					Err(e.to_string())
+				}
+			}
+		}
 	}
 	pub async fn DeleteService(&self, id: &String) -> Result<bool, String> {
-		self.db.DeleteService(id).await.map_err(|e| String::from(e.to_string()))
+		match self.epMgr.ServiceIdToName(id) {
+			Ok(name) => {
+				let result = self.cmSvc.RevokeServiceCert(&name).await;
+				if result.is_ok() {
+					self.db.DeleteService(id).await.map_err(|e| String::from(e.to_string()))
+				} else {
+					Err(result.unwrap_err())
+				}
+			},
+			Err(_) => Err("failed to convert service name to ID".to_string()),
+		}
 	}
 	pub async fn RenewServiceCredentials(&self, name: &String) -> Result<ServiceCredentials, String> {
-		match self.certMgr.GenerateServiceCert(name, false).await {
+		match self.cmSvc.GenerateServiceCert(name, false).await {
 			Ok(c) => {
 				let ca_chain = c.ca_chain.unwrap();
 				let x = ca_chain.iter().fold(String::new(), |acc, i| acc + "\n" + i);

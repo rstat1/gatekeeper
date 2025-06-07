@@ -35,7 +35,7 @@ use uuid::Uuid;
 
 use super::{
 	cert_svc::CertManagerSvc,
-	v1::{NewServiceEndpoint, ServiceCredentials},
+	v1::{NewServiceEndpoint},
 };
 
 pub trait RemoveElem<T> {
@@ -47,9 +47,7 @@ pub trait RemoveElem<T> {
 struct HealthChecker {
 	client: Arc<EndpointManagerImpl>,
 }
-struct CertChecker {
-	client: Arc<EndpointManagerImpl>,
-}
+
 #[derive(Clone)]
 struct RegisteredEndpoint {
 	pub address: SocketAddr,
@@ -95,7 +93,9 @@ impl<T> RemoveElem<T> for Vec<T> {
 }
 
 impl EndpointManagerImpl {
-	pub async fn new(data: Arc<data::DataStore>, svcsList: Vec<Service>, healthPingInterval: Option<u64>, gkCert: Arc<VaultCertificate>, certManSvc: Arc<CertManagerSvc>) -> Result<Arc<Self>, String> {
+	pub async fn new(
+		data: Arc<data::DataStore>, svcsList: Vec<Service>, healthPingInterval: Option<u64>, gkCert: Arc<VaultCertificate>, certManSvc: Arc<CertManagerSvc>, certCheckInternal: Option<u32>,
+	) -> Result<Arc<Self>, String> {
 		let mut aliasToSvc: HashMap<String, String> = HashMap::default();
 		match data.GetNamespaces().await {
 			Ok(d) => {
@@ -105,9 +105,15 @@ impl EndpointManagerImpl {
 					}
 				}
 
-				let epmgr = Arc::new(EndpointManagerImpl { svcsList: Mutex::new(svcsList), domains: Vec::from(d), epMap: Mutex::new(HashMap::new()), gkCert, aliasToSvc, certManSvc });
+				let epmgr = Arc::new(EndpointManagerImpl {
+					svcsList: Mutex::new(svcsList),
+					domains: Vec::from(d),
+					epMap: Mutex::new(HashMap::new()),
+					gkCert,
+					aliasToSvc,
+					certManSvc,
+				});
 				epmgr.startHealthCheck(healthPingInterval.unwrap_or(300));
-				epmgr.startCertChecker();
 				Ok(epmgr)
 			}
 			Err(e) => Err(e.to_string()),
@@ -343,10 +349,6 @@ impl EndpointManagerImpl {
 		let hc = Arc::new(HealthChecker { client: Arc::clone(&self) });
 		hc.StartHealthCheck(ttl, self.gkCert.clone());
 	}
-	fn startCertChecker(self: &Arc<Self>) {
-		let cc = Arc::new(CertChecker { client: Arc::clone(&self) });
-		cc.StartCertCheck(self.gkCert.clone());
-	}
 }
 impl HealthChecker {
 	pub fn StartHealthCheck(self: &Arc<Self>, healthCheckInterval: u64, gkCert: Arc<VaultCertificate>) {
@@ -437,85 +439,5 @@ impl HealthChecker {
 				}
 			}
 		});
-	}
-}
-impl CertChecker {
-	pub fn StartCertCheck(self: &Arc<Self>, gkCert: Arc<VaultCertificate>) {
-		let self_clone = Arc::clone(self);
-		tokio::spawn(async move {
-			loop {
-				let mut to_renew = Vec::default();
-				if let Some(k8sEPs) = self_clone.client.GetK8SEndpoints() {
-					for ep in k8sEPs {
-						match self_clone.client.certManSvc.IsCertificateExpired(&ep.serviceName, true).await {
-							Ok(exp) => {
-								if exp {
-									to_renew.push(ep);
-								}
-							}
-							Err(e) => error!("{:?}", e),
-						}
-					}
-				}
-				for svc in to_renew {
-					match self_clone.client.certManSvc.GenerateServiceCert(&svc.serviceName, true).await {
-						Ok(c) => {
-							let ca_chain = c.ca_chain.unwrap();
-							let x = ca_chain.iter().fold(String::new(), |acc, i| acc + "\n" + i);
-							let sc = ServiceCredentials { ca_cert: x, certificate: c.certificate, expires_at: c.expiration.unwrap_or(0), issuer_cert: c.issuing_ca, private_key: c.private_key };
-
-							self_clone.SendNewCredsToEP(svc, sc, gkCert.clone()).await;
-						}
-						Err(e) => error!(e),
-					}
-				}
-
-				tokio::time::sleep(Duration::from_secs(86400)).await;
-			}
-		});
-	}
-	async fn SendNewCredsToEP(self: &Arc<Self>, rep: RegisteredEndpoint, newCreds: ServiceCredentials, gkCert: Arc<VaultCertificate>) {
-		let caChain = gkCert.ca_chain.as_ref().unwrap();
-		let cert = X509::from_pem(&Bytes::from(gkCert.certificate.clone())).unwrap();
-		let caInt = X509::from_pem(&Bytes::from(caChain[0].clone())).unwrap();
-		let caRoot = X509::from_pem(&Bytes::from(caChain[1].clone())).unwrap();
-		let pKey = PKey::private_key_from_pem(&Bytes::from(gkCert.private_key.clone())).unwrap();
-		let value = Arc::new(CertKey::new(vec![cert], pKey));
-		let connector = Connector::new(None);
-		let addrParts = rep.healthCheckRoute.split("/").collect::<Vec<&str>>();
-		let addr: SocketAddr = addrParts[2].to_string().parse().unwrap();
-		let mut peer = HttpPeer::new(addr, true, rep.serviceName.clone());
-		let mut peerOpts = PeerOptions::new();
-		let hcr: Uri = rep.healthCheckRoute.replace("/ping", "/cert_renew").parse().unwrap();
-
-		peer.client_cert_key = Some(value.clone());
-		peerOpts.alpn = ALPN::H1;
-		peerOpts.ca = Some(Arc::new(Box::new([caInt.clone(), caRoot.clone()])));
-		peer.options = peerOpts;
-
-		match connector.get_http_session(&peer).await {
-			Ok((mut http, _reused)) => {
-				let certJSON = serde_json::to_string(&newCreds).unwrap();
-				let mut new_request = RequestHeader::build("POST", hcr.path().as_bytes(), None).unwrap();
-				new_request.insert_header(http::header::HOST, rep.serviceName.clone()).unwrap();
-				new_request.insert_header(http::header::CONTENT_LENGTH, certJSON.len()).unwrap();
-				http.write_request_header(Box::new(new_request)).await.unwrap();
-
-				http.write_body(certJSON.as_bytes()).await.unwrap();
-				http.finish_body().await.unwrap();
-
-				http.read_response().await.unwrap();
-				let mut response_body = String::new();
-				while let Some(chunk) = http.read_body_ref().await.unwrap() {
-					response_body.push_str(&String::from_utf8_lossy(&chunk));
-					if response_body != "ok" {
-						//TODO: Alert the admin some how
-						//TODO: How to handle these failures
-						error!("unexpected response received from client: {}", response_body);
-					}
-				}
-			}
-			Err(e) => error!("{}", e),
-		}
 	}
 }

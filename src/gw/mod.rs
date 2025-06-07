@@ -16,13 +16,16 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tonic::async_trait;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::{
 	data::DataStore,
-	services::endpoint_manager::EndpointManagerImpl,
-	services::v1::{Alias, Service},
-	vault::Certificate,
+	services::{
+		cert_svc::CertManagerSvc,
+		endpoint_manager::EndpointManagerImpl,
+		v1::{Alias, Service},
+	},
+	vault::{Certificate, VaultClient},
 };
 
 const DEVICE_API_CONTENT_TYPE: &str = "application/x-gatekeeper-device-api";
@@ -30,7 +33,9 @@ const DEVICE_API_CONTENT_TYPE: &str = "application/x-gatekeeper-device-api";
 pub mod grpc_transcoder;
 pub mod reverse_proxy;
 
-pub struct DynamicCert;
+pub struct DynamicCert {
+	cmSvc: Arc<CertManagerSvc>,
+}
 pub struct ReverseProxy {
 	grpcCert: Certificate,
 	staticFileServerAddr: String,
@@ -40,13 +45,14 @@ pub struct ReverseProxy {
 
 impl ReverseProxy {
 	pub fn new(epMgr: Arc<EndpointManagerImpl>, staticFileServerAddr: &String, gkCert: &Certificate, deviceAuthServerAddr: &String) -> Self {
+		info!("gw init");
 		ReverseProxy { epMgr, staticFileServerAddr: staticFileServerAddr.clone(), grpcCert: gkCert.clone(), deviceAuthServerAddr: deviceAuthServerAddr.clone() }
 	}
 }
 
 impl DynamicCert {
-	pub fn new() -> Box<Self> {
-		Box::new(DynamicCert {})
+	pub fn new(cmSvc: Arc<CertManagerSvc>) -> Box<Self> {
+		Box::new(DynamicCert { cmSvc })
 	}
 }
 
@@ -60,40 +66,32 @@ impl pingora::listeners::TlsAccept for DynamicCert {
 			let url: Uri = serverName.parse().unwrap();
 			let urlParts: Vec<&str> = url.host().unwrap().split(".").collect();
 			let base = url.to_string().replace(urlParts[0], "").replacen(".", "", 1);
+			let cert = self.cmSvc.GetCachedNSCert(base);
 
-			let certPathStr = format!("certs/{}.crt", base);
-			let certKeyStr = format!("certs/{}.key", base);
-
-			let certPath = Path::new(certPathStr.as_str());
-			let certKey = Path::new(certKeyStr.as_str());
-
-			if certPath.exists() && certKey.exists() {
-				let cert_bytes = std::fs::read(certPath).unwrap();
-				let key_bytes = std::fs::read(certKey).unwrap();
+			if let Some(nsCert) = cert {
+				debug!("got cert");
+				let cert_bytes = nsCert.certChain.as_bytes();
+				let key_bytes = nsCert.privateKey.as_bytes();
 				let key = PKey::private_key_from_pem(&key_bytes).unwrap();
 
 				ext::ssl_use_private_key(ssl, &key).unwrap();
 
 				match X509::stack_from_pem(&cert_bytes) {
 					Ok(certs) => {
-						debug!("cert stack len = {}", certs.len());
-						debug!("{:?}", certs[0].subject_name());
-
-						ext::ssl_use_certificate(ssl, &certs[0]).unwrap();
-
 						if certs.len() > 1 {
-							debug!("{:?}", certs[1].subject_name());
-							if let Err(e) = ext::ssl_add_chain_cert(ssl, &certs[1]) {
-								error!("ssl_add_chain_cert returned: {}", e);
+							for i in 0..certs.len() {
+								if i == 0 {
+									ext::ssl_use_certificate(ssl, &certs[i]).unwrap();
+								}
+								if i > 0 {
+									debug!("{:?}", certs[i].subject_name());
+									if let Err(e) = ext::ssl_add_chain_cert(ssl, &certs[i]) {
+										error!("ssl_add_chain_cert returned: {}", e);
+									}
+								}
 							}
 						} else {
-							let caCertPath = Path::new("certs/e6.crt");
-							let ca_bytes = std::fs::read(caCertPath).unwrap();
-							let caCert = X509::from_pem(&ca_bytes).unwrap();
-
-							if let Err(e) = ext::ssl_add_chain_cert(ssl, &caCert) {
-								error!("ssl_add_chain_cert returned: {}", e);
-							}
+							ext::ssl_use_certificate(ssl, &certs[0]).unwrap();
 						}
 					}
 					Err(errs) => {
