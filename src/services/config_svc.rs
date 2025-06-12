@@ -13,7 +13,7 @@ use crate::{
 	data::DataStore,
 	services::{
 		endpoint_manager::EndpointManagerImpl,
-		v1::{service_endpoint_request::Name, Namespace, Service},
+		v1::{Namespace, Service},
 	},
 	vault::Certificate,
 };

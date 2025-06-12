@@ -10,18 +10,20 @@
 #![allow(nonstandard_style)]
 
 use pingora::{listeners::tls::TlsSettings, prelude::*, services::listening::Service as ListeningService};
+use tokio::sync::watch::Receiver;
 use std::{fs, path::Path, sync::Arc};
-use tracing::{debug, info};
-use tracing::{error, warn};
+use tracing::{debug, info, warn};
 
-use gatekeeper::cloudflare_api::CloudflareAPIClient;
-use gatekeeper::data::*;
-use gatekeeper::gw::*;
-use gatekeeper::services::{
-	cert_svc::CertManagerSvc, config_svc::ConfigServiceImpl, endpoint_manager::EndpointManagerImpl, ext_device::ExternalDeviceManager, grpc::GRPCServer, static_file_server::StaticFileServer,
-	v1::Service,
+use gatekeeper::{
+	cloudflare_api::CloudflareAPIClient,
+	data::*,
+	gw::*,
+	services::{
+		cert_svc::CertManagerSvc, config_svc::ConfigServiceImpl, endpoint_manager::EndpointManagerImpl, ext_device::ExternalDeviceManager, grpc::GRPCServer, static_file_server::StaticFileServer,
+		v1::Service,
+	},
+	vault::{Certificate, DBCredentials, VaultClient},
 };
-use gatekeeper::vault::{Certificate, DBCredentials, VaultClient};
 
 fn main() {
 	tracing_subscriber::fmt::init();
@@ -38,11 +40,11 @@ fn main() {
 	let srImpl: Arc<EndpointManagerImpl>;
 	let svcsList: Vec<Service>;
 	let cfAPI: Arc<CloudflareAPIClient>;
+	let certUpdatesReceiver: Receiver<(Certificate, String)>;
 	let mut server = Server::new(None).unwrap();
 	let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
 
 	server.bootstrap();
-
 
 	let conf_file = std::fs::read_to_string("gatekeeper_config");
 	match conf_file {
@@ -126,7 +128,8 @@ fn main() {
 	match rt.block_on(async_ac_init) {
 		Ok(ac) => {
 			info!("cmsvc init");
-			cmSvc = ac
+			cmSvc = ac.0;
+			certUpdatesReceiver = ac.1
 		}
 		Err(e) => {
 			panic!("cert_svc init failed: {}", e)
@@ -172,7 +175,7 @@ fn main() {
 		}
 	}
 
-	let async_sri_init = async { EndpointManagerImpl::new(db.clone(), svcsList.clone(), conf.healthCheckInterval, apiServiceCert.clone(), cmSvc.clone(), conf.certCheckInterval).await };
+	let async_sri_init = async { EndpointManagerImpl::new(db.clone(), svcsList.clone(), conf.healthCheckInterval, apiServiceCert.clone(), certUpdatesReceiver).await };
 	match rt.block_on(async_sri_init) {
 		Ok(sri) => {
 			info!("epmgr init");
@@ -180,7 +183,6 @@ fn main() {
 		}
 		Err(e) => panic!("{:?}", e),
 	}
-
 	apiImpl = ConfigServiceImpl::new(db.clone(), cmSvc.clone(), srImpl.clone());
 
 	let mut staticServer: ListeningService<StaticFileServer> = StaticFileServer::Service();

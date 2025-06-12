@@ -66,7 +66,7 @@ impl pingora::listeners::TlsAccept for DynamicCert {
 			let url: Uri = serverName.parse().unwrap();
 			let urlParts: Vec<&str> = url.host().unwrap().split(".").collect();
 			let base = url.to_string().replace(urlParts[0], "").replacen(".", "", 1);
-			let cert = self.cmSvc.GetCachedNSCert(base);
+			let cert = self.cmSvc.GetCachedNSCert(base).await;
 
 			if let Some(nsCert) = cert {
 				debug!("got cert");

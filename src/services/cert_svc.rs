@@ -27,15 +27,21 @@ use rustls_pki_types::{pem::PemObject, CertificateDer};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, future::Future, path::Path, pin::Pin, sync::Arc, time::Duration};
-use tokio::time::sleep;
-use tracing::{debug, error, info};
+use tokio::{
+	sync::{
+		watch::{channel, Receiver, Sender},
+		RwLock,
+	},
+	time::sleep,
+};
+use tracing::{debug, error, info, warn};
 use x509_parser::pem::parse_x509_pem;
 
 struct ACMEHTTPClient;
 struct ExpirationChecker {
 	cmSvc: Arc<CertManagerSvc>,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct NSCertificate {
 	pub notAfter: i64,
 	#[serde(rename = "name")]
@@ -49,7 +55,8 @@ pub struct CertManagerSvc {
 	vault: Arc<VaultClient>,
 	acmeContactEmail: String,
 	cfAPI: Arc<CloudflareAPIClient>,
-	nsCertCache: HashMap<String, NSCertificate>,
+	certUpdateChannel: Sender<(Certificate, String)>,
+	nsCertCache: RwLock<HashMap<String, NSCertificate>>,
 }
 
 impl ACMEHTTPClient {}
@@ -89,7 +96,9 @@ impl HttpClient for ACMEHTTPClient {
 	}
 }
 impl CertManagerSvc {
-	pub async fn new(vault: Arc<VaultClient>, cfAPI: Arc<CloudflareAPIClient>, devMode: bool, acmeContactEmail: String, certCheckInterval: u64) -> Result<Arc<Self>, String> {
+	pub async fn new(
+		vault: Arc<VaultClient>, cfAPI: Arc<CloudflareAPIClient>, devMode: bool, acmeContactEmail: String, certCheckInterval: u64,
+	) -> Result<(Arc<Self>, Receiver<(Certificate, String)>), String> {
 		let mut nsCertCache: HashMap<String, NSCertificate> = HashMap::default();
 		match vault.ListAllKeysAtKVPath("gatekeeper", Some("ns-certs")).await {
 			Ok(keys) => {
@@ -115,9 +124,10 @@ impl CertManagerSvc {
 				return Err(e);
 			}
 		}
-		let cmSvc = Arc::new(Self { vault, cfAPI, devMode, acmeContactEmail, nsCertCache });
+		let (certUpdateChannel, recv) = channel((Certificate::default(), "".to_string()));
+		let cmSvc = Arc::new(Self { vault, cfAPI, devMode, acmeContactEmail, nsCertCache: RwLock::new(nsCertCache), certUpdateChannel });
 		cmSvc.startExpireChecker(certCheckInterval);
-		Ok(cmSvc)
+		Ok((cmSvc, recv))
 	}
 	pub async fn GenerateServiceCert(&self, serviceName: &String, saveToVault: bool) -> Result<Certificate, String> {
 		let certResult = self.vault.GenerateServiceCert("gatekeeper", &serviceName).await;
@@ -242,9 +252,14 @@ impl CertManagerSvc {
 		}
 		Ok(true)
 	}
-	pub fn GetCachedNSCert(&self, ns: String) -> Option<&NSCertificate> {
+	pub async fn GetCachedNSCert(&self, ns: String) -> Option<NSCertificate> {
 		debug!("get cert for {ns}");
-		self.nsCertCache.get(&ns)
+		let certs = self.nsCertCache.read().await;
+		certs.get(&ns).cloned()
+	}
+	pub async fn IsCertCacheEmpty(&self) -> bool {
+		let certs = self.nsCertCache.read().await;
+		certs.len() == 0
 	}
 	pub async fn GetExistingServiceCert(&self, serviceName: String, fromVault: bool) -> Result<Certificate, String> {
 		if fromVault {
@@ -482,12 +497,16 @@ impl CertManagerSvc {
 impl ExpirationChecker {
 	pub fn Start(self: &Arc<Self>, checkIntervalSecs: u64) {
 		let self_clone = Arc::clone(self);
+
 		tokio::spawn(async move {
 			loop {
-				if self_clone.cmSvc.nsCertCache.len() > 0 {
+				if !self_clone.cmSvc.IsCertCacheEmpty().await {
+					info!("starting expiry check. Running every {checkIntervalSecs} seconds");
 					self_clone.checkCredentialCerts().await;
 					self_clone.checkNSCerts().await;
 					info!("Ok, sleep time. Hey google set an alarm for {checkIntervalSecs} seconds");
+				} else {
+					warn!("cert cache empty");
 				}
 				tokio::time::sleep(Duration::from_secs(checkIntervalSecs)).await;
 			}
@@ -507,14 +526,18 @@ impl ExpirationChecker {
 							if wellIsIt.is_ok() {
 								if wellIsIt.unwrap() == true {
 									match self.cmSvc.GenerateServiceCert(&name, true).await {
-										Ok(_) => {}
-										Err(e) => error!("{e}"),
+										Ok(newCert) => {
+											self.cmSvc.certUpdateChannel.send_replace((newCert, name.clone()));
+										}
+										Err(e) => error!("{e}"), //TODO: Notify monitor of generation failure.
 									}
 								}
 							} else {
 								error!("checkCredentialCerts: {}", wellIsIt.unwrap_err());
 							}
 						}
+					} else {
+						debug!("no services configured")
 					}
 				}
 			}
@@ -522,7 +545,8 @@ impl ExpirationChecker {
 		}
 	}
 	async fn checkNSCerts(self: &Arc<Self>) {
-		for nsc in &self.cmSvc.nsCertCache {
+		let nsCerts = self.cmSvc.nsCertCache.read().await;
+		for nsc in nsCerts.iter() {
 			let expireTime = nsc.1.notAfter;
 			let mut currentTime = Utc::now();
 			for _ in 1..6 {
@@ -531,7 +555,7 @@ impl ExpirationChecker {
 					let certDer: Vec<CertificateDer<'static>> = CertificateDer::pem_slice_iter(nsc.1.certChain.as_bytes()).map(|result| result.unwrap()).collect();
 					let certID = CertificateIdentifier::try_from(certDer.first().unwrap());
 					if certID.is_ok() {
-						match self.cmSvc.GenerateACMECert(&nsc.1.namespace, nsc.0, Some(certID.unwrap())).await {
+						match self.cmSvc.GenerateACMECert(&nsc.1.namespace, &nsc.0, Some(certID.unwrap())).await {
 							Ok(_) => {}
 							Err(_) => {}
 						}

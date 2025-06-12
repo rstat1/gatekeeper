@@ -7,7 +7,9 @@
 
 use crate::{
 	data::{self},
-	services::v1::{Namespace, Service},
+	services::{
+		v1::{Namespace, Service},
+	},
 	vault::Certificate as VaultCertificate,
 };
 use bytes::Bytes;
@@ -25,18 +27,15 @@ use rand::Rng;
 use std::{
 	collections::HashMap,
 	fmt::{Debug, Display},
-	net::SocketAddr,
+	net::{IpAddr, Ipv4Addr, SocketAddr},
 	sync::Arc,
 	time::Duration,
 };
-use tokio::sync::Mutex;
+use tokio::sync::{watch::Receiver, Mutex};
 use tracing::{debug, error, warn};
 use uuid::Uuid;
 
-use super::{
-	cert_svc::CertManagerSvc,
-	v1::{NewServiceEndpoint},
-};
+use super::v1::NewServiceEndpoint;
 
 pub trait RemoveElem<T> {
 	fn remove_elem<F>(&mut self, predicate: F) -> Option<T>
@@ -45,6 +44,9 @@ pub trait RemoveElem<T> {
 }
 
 struct HealthChecker {
+	client: Arc<EndpointManagerImpl>,
+}
+struct CertChecker {
 	client: Arc<EndpointManagerImpl>,
 }
 
@@ -63,8 +65,8 @@ pub struct EndpointManagerImpl {
 	domains: Vec<Namespace>,
 	gkCert: Arc<VaultCertificate>,
 	svcsList: Mutex<Vec<Service>>,
-	certManSvc: Arc<CertManagerSvc>,
 	aliasToSvc: HashMap<String, String>,
+	pub certUpdateChan: Receiver<(VaultCertificate, String)>,
 	epMap: Mutex<HashMap<String, Vec<RegisteredEndpoint>>>,
 }
 
@@ -83,6 +85,20 @@ impl Debug for RegisteredEndpoint {
 	}
 }
 
+impl Default for RegisteredEndpoint {
+	fn default() -> Self {
+		Self {
+			address: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080),
+			isExternalDevice: Default::default(),
+			healthCheckRoute: Default::default(),
+			deviceID: Default::default(),
+			serviceName: Default::default(),
+			epID: Default::default(),
+			runningOnK8S: Default::default(),
+		}
+	}
+}
+
 impl<T> RemoveElem<T> for Vec<T> {
 	fn remove_elem<F>(&mut self, predicate: F) -> Option<T>
 	where
@@ -94,7 +110,7 @@ impl<T> RemoveElem<T> for Vec<T> {
 
 impl EndpointManagerImpl {
 	pub async fn new(
-		data: Arc<data::DataStore>, svcsList: Vec<Service>, healthPingInterval: Option<u64>, gkCert: Arc<VaultCertificate>, certManSvc: Arc<CertManagerSvc>, certCheckInternal: Option<u32>,
+		data: Arc<data::DataStore>, svcsList: Vec<Service>, healthPingInterval: Option<u64>, gkCert: Arc<VaultCertificate>, certUpdateChan: Receiver<(VaultCertificate, String)>,
 	) -> Result<Arc<Self>, String> {
 		let mut aliasToSvc: HashMap<String, String> = HashMap::default();
 		match data.GetNamespaces().await {
@@ -105,15 +121,9 @@ impl EndpointManagerImpl {
 					}
 				}
 
-				let epmgr = Arc::new(EndpointManagerImpl {
-					svcsList: Mutex::new(svcsList),
-					domains: Vec::from(d),
-					epMap: Mutex::new(HashMap::new()),
-					gkCert,
-					aliasToSvc,
-					certManSvc,
-				});
+				let epmgr = Arc::new(EndpointManagerImpl { svcsList: Mutex::new(svcsList), domains: Vec::from(d), epMap: Mutex::new(HashMap::new()), gkCert, aliasToSvc, certUpdateChan });
 				epmgr.startHealthCheck(healthPingInterval.unwrap_or(300));
+				epmgr.startCertUpdateListener();
 				Ok(epmgr)
 			}
 			Err(e) => Err(e.to_string()),
@@ -299,25 +309,22 @@ impl EndpointManagerImpl {
 		}
 		None
 	}
-	pub(self) fn GetK8SEndpoints(&self) -> Option<Vec<RegisteredEndpoint>> {
+	pub(self) fn GetRegisteredEndpoints(&self, name: &String) -> Option<Vec<RegisteredEndpoint>> {
 		let epMap = self.epMap.try_lock();
-		let mut k8sSvcs: Vec<RegisteredEndpoint> = Vec::default();
 		match epMap {
 			Ok(m) => {
-				for (_, val) in m.iter() {
-					for rep in val.iter() {
-						if rep.runningOnK8S {
-							k8sSvcs.push(rep.clone());
-						}
+				if let Some(eps) = m.get(name) {
+					if eps.len() > 0 {
+						return Some(eps.to_vec());
 					}
 				}
-				Some(k8sSvcs)
+				return None;
 			}
 			Err(e) => {
-				error!("GetK8SEndpoints TLE: {:?}", e);
-				None
+				error!("GetServiceEndpoint TLE: {:?}", e)
 			}
 		}
+		None
 	}
 	pub fn RemoveServiceEndpoint(&self, name: &String, endpoint: SocketAddr) {
 		let epMap = self.epMap.try_lock();
@@ -344,10 +351,77 @@ impl EndpointManagerImpl {
 			Err(e) => error!("AddServiceToKnownList TLE: {:?}", e),
 		}
 	}
-
 	fn startHealthCheck(self: &Arc<Self>, ttl: u64) {
 		let hc = Arc::new(HealthChecker { client: Arc::clone(&self) });
 		hc.StartHealthCheck(ttl, self.gkCert.clone());
+	}
+	fn startCertUpdateListener(self: &Arc<Self>) {
+		let hc = Arc::new(CertChecker { client: Arc::clone(&self) });
+		hc.StartCertCheck(self.gkCert.clone());
+	}
+}
+impl CertChecker {
+	pub fn StartCertCheck(self: &Arc<Self>, gkCert: Arc<VaultCertificate>) {
+		let self_clone = Arc::clone(self);
+		let mut cert_chan: Receiver<(VaultCertificate, String)> = self_clone.client.certUpdateChan.clone();
+		tokio::spawn(async move {
+			loop {
+				if cert_chan.changed().await.is_ok() {
+					let newCert = cert_chan.borrow_and_update().clone();
+					if newCert.1 != "".to_string() {
+						match self_clone.client.GetRegisteredEndpoints(&newCert.1) {
+							Some(eps) => {
+								for rep in eps {
+									self_clone.SendNewCredsToEP(rep, &newCert.0, gkCert.clone()).await;
+								}
+							},
+							None => {},
+						}
+					}
+				}
+			}
+		});
+	}
+	async fn SendNewCredsToEP(self: &Arc<Self>, rep: RegisteredEndpoint, newCreds: &VaultCertificate, gkCert: Arc<VaultCertificate>) {
+		let caChain = gkCert.ca_chain.as_ref().unwrap();
+		let cert = X509::from_pem(&Bytes::from(gkCert.certificate.clone())).unwrap();
+		let caInt = X509::from_pem(&Bytes::from(caChain[0].clone())).unwrap();
+		let caRoot = X509::from_pem(&Bytes::from(caChain[1].clone())).unwrap();
+		let pKey = PKey::private_key_from_pem(&Bytes::from(gkCert.private_key.clone())).unwrap();
+		let value = Arc::new(CertKey::new(vec![cert], pKey));
+		let connector = Connector::new(None);
+		let addrParts = rep.healthCheckRoute.split("/").collect::<Vec<&str>>();
+		let addr: SocketAddr = addrParts[2].to_string().parse().unwrap();
+		let mut peer = HttpPeer::new(addr, true, rep.serviceName.clone());
+		let mut peerOpts = PeerOptions::new();
+		let hcr: Uri = rep.healthCheckRoute.replace("/ping", "/cert_renew").parse().unwrap();
+
+		peer.client_cert_key = Some(value.clone());
+		peerOpts.alpn = ALPN::H1;
+		peerOpts.ca = Some(Arc::new(Box::new([caInt.clone(), caRoot.clone()])));
+		peer.options = peerOpts;
+
+		match connector.get_http_session(&peer).await {
+			Ok((mut http, _reused)) => {
+				let mut new_request = RequestHeader::build("POST", hcr.path().as_bytes(), None).unwrap();
+				new_request.insert_header("Host", rep.serviceName.clone()).unwrap();
+				http.write_request_header(Box::new(new_request)).await.unwrap();
+
+				let certJSON = serde_json::to_string(&newCreds).unwrap();
+				let _ = http.write_body(certJSON.as_bytes()).await;
+
+				http.finish_body().await.unwrap();
+				http.read_response().await.unwrap();
+				let mut response_body = String::new();
+				while let Some(chunk) = http.read_body_ref().await.unwrap() {
+					response_body.push_str(&String::from_utf8_lossy(&chunk));
+					if response_body != "ok" {
+						//TODO: report failures to monitoring system
+					}
+				}
+			}
+			Err(_) => {}
+		}
 	}
 }
 impl HealthChecker {
