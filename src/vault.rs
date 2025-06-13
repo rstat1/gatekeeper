@@ -19,6 +19,8 @@ use std::{collections::HashMap, env, sync::Arc};
 use tokio::time::Duration;
 use tracing::{error, info, warn};
 
+use crate::SYSTEM_CONFIG;
+
 #[derive(Builder, Endpoint, Default)]
 #[endpoint(path = "/v1/{self.mount}/data/{self.path}", method = "POST", builder = "true")]
 #[builder(setter(into, strip_option), default)]
@@ -109,11 +111,15 @@ pub struct GenerateCertRequest {
 	pub uri_sans: Option<String>,
 	pub remove_roots_from_chain: Option<bool>,
 }
-#[derive(Builder, Debug, Default, Endpoint)]
-#[endpoint(path = "/v1/pki/revoke-with-key", method = "POST", response = "RevokeCertResponse", builder = "true")]
+#[derive(Builder, Debug, Default, Endpoint, Serialize)]
+#[endpoint(path = "/v1/{self.mount}/revoke-with-key", method = "POST", response = "RevokeCertResponse", builder = "true")]
 #[builder(setter(into, strip_option), default)]
 pub struct RevokeCertRequest {
+	#[endpoint(skip)]
+	pub mount: String,
+	#[serde(rename = "certificate")]
 	pub certificate: String,
+	#[serde(rename = "private_key")]
 	pub privateKey: String,
 }
 
@@ -483,7 +489,7 @@ impl VaultClient {
 		}
 	}
 
-	pub async fn WriteStructToKV<T: Serialize>(&self, path: &str, mount: &str, structToWrite: T) -> Result<(), String> {
+	pub async fn WriteStructToKV<T: Serialize>(&self, path: &str, mount: &str, structToWrite: &T) -> Result<(), String> {
 		let mut mountPath: String = mount.to_string();
 		if mount == "" {
 			mountPath = "gatekeeper".to_string()
@@ -584,10 +590,14 @@ impl VaultClient {
 		}
 	}
 	pub async fn GenerateServiceCert(&self, role: &str, common_name: &str) -> Result<Certificate, String> {
-		//TODO: don't hardcode the ca mount path
+		let mut certRole: String = role.to_string();
+		if self.dev {
+			certRole = format!("{}-dev", role)
+		}
+		
 		let certReq = GenerateCertRequest::builder()
-			.mount("internal_svc_lvl2")
-			.role(role.to_string())
+			.mount(&SYSTEM_CONFIG.vaultCAName)
+			.role(certRole)
 			.common_name(common_name.to_string())
 			.build()
 			.unwrap();
@@ -606,7 +616,7 @@ impl VaultClient {
 		}
 	}
 	pub async fn RevokeServiceCert(&self, certificate: String, key: String) -> Result<(), String> {
-		let req = RevokeCertRequest::builder().certificate(certificate).privateKey(key).build().unwrap();
+		let req = RevokeCertRequest::builder().mount(&SYSTEM_CONFIG.vaultCAName).certificate(certificate).privateKey(key).build().unwrap();
 		let result = req.with_middleware(&self.atm).exec(&self.httpClient).await.unwrap().wrap::<VaultResult<_>>();
 		match result {
 			Ok(_) => Ok(()),

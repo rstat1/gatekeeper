@@ -34,7 +34,7 @@ use tokio::{
 	},
 	time::sleep,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, event, info, warn, Level};
 use x509_parser::pem::parse_x509_pem;
 
 struct ACMEHTTPClient;
@@ -97,7 +97,7 @@ impl HttpClient for ACMEHTTPClient {
 }
 impl CertManagerSvc {
 	pub async fn new(
-		vault: Arc<VaultClient>, cfAPI: Arc<CloudflareAPIClient>, devMode: bool, acmeContactEmail: String, certCheckInterval: u64,
+		vault: Arc<VaultClient>, cfAPI: Arc<CloudflareAPIClient>, devMode: bool, acmeContactEmail: &String, certCheckInterval: u64,
 	) -> Result<(Arc<Self>, Receiver<(Certificate, String)>), String> {
 		let mut nsCertCache: HashMap<String, NSCertificate> = HashMap::default();
 		match vault.ListAllKeysAtKVPath("gatekeeper", Some("ns-certs")).await {
@@ -125,7 +125,7 @@ impl CertManagerSvc {
 			}
 		}
 		let (certUpdateChannel, recv) = channel((Certificate::default(), "".to_string()));
-		let cmSvc = Arc::new(Self { vault, cfAPI, devMode, acmeContactEmail, nsCertCache: RwLock::new(nsCertCache), certUpdateChannel });
+		let cmSvc = Arc::new(Self { vault, cfAPI, devMode, acmeContactEmail: acmeContactEmail.clone(), nsCertCache: RwLock::new(nsCertCache), certUpdateChannel });
 		cmSvc.startExpireChecker(certCheckInterval);
 		Ok((cmSvc, recv))
 	}
@@ -232,17 +232,20 @@ impl CertManagerSvc {
 					return Err(certID.unwrap_err().to_string());
 				}
 
-				let r = self
-					.vault
-					.WriteStructToKV(
-						format!("ns-certs/{}", nsID).as_str(),
-						"gatekeeper",
-						NSCertificate { certChain, privateKey, notAfter: renewTime, issuingCA, namespace: namespace.to_string() },
-					)
-					.await;
+				let newCert = NSCertificate { certChain, privateKey, notAfter: renewTime, issuingCA, namespace: namespace.to_string() };
+				let r = self.vault.WriteStructToKV(format!("ns-certs/{}", nsID).as_str(), "gatekeeper", &newCert).await;
 				if r.is_err() {
 					return Err(r.unwrap_err());
 				}
+				let mut certCache = self.nsCertCache.write().await;
+
+				if certCache.contains_key(&namespace.to_string()) {
+					if let Some(existing) = certCache.get_mut(namespace) {
+						*existing = newCert;
+					}
+				}
+				drop(certCache);
+
 				if dnsRecordID != "" {
 					self.cfAPI.DeleteDNSRecord(&dnsRecordID).await?;
 					debug!("cleaned up dns records");
@@ -365,13 +368,17 @@ impl CertManagerSvc {
 	pub async fn RevokeServiceCert(&self, serviceName: &String) -> Result<(), String> {
 		match self.GetExistingServiceCert(serviceName.clone(), true).await {
 			Ok(cert) => {
+				if cert.private_key == "".to_string() {
+					warn!("this operation will fail without a private key");
+				}
+
 				let revokeResult = self.vault.RevokeServiceCert(cert.certificate, cert.private_key).await;
 				if revokeResult.is_ok() {
 					let delResult = self.vault.DeleteKVPair(&serviceName, "gatekeeper-credentials").await;
 					if delResult.is_ok() {
-						Ok(())
+						return Ok(());
 					} else {
-						Err(delResult.unwrap_err())
+						return Err(delResult.unwrap_err());
 					}
 				} else {
 					Err(revokeResult.unwrap_err())
@@ -388,6 +395,7 @@ impl CertManagerSvc {
 					Ok(acc) => {
 						let firstCert: Vec<&str> = cert.certChain.split_inclusive("-----END CERTIFICATE-----").collect();
 						let derCert = CertificateDer::from_pem_slice(firstCert[0].as_bytes()).unwrap();
+
 						match acc.revoke(&RevocationRequest { certificate: &derCert, reason: Some(RevocationReason::CessationOfOperation) }).await {
 							Ok(()) => match self.vault.DeleteKVPair(format!("ns-certs/{nsID}").as_str(), "gatekeeper").await {
 								Ok(()) => return Ok(()),
@@ -501,10 +509,10 @@ impl ExpirationChecker {
 		tokio::spawn(async move {
 			loop {
 				if !self_clone.cmSvc.IsCertCacheEmpty().await {
-					info!("starting expiry check. Running every {checkIntervalSecs} seconds");
+					info!("starting expiry check. Running every {} minutes", checkIntervalSecs / 60);
 					self_clone.checkCredentialCerts().await;
 					self_clone.checkNSCerts().await;
-					info!("Ok, sleep time. Hey google set an alarm for {checkIntervalSecs} seconds");
+					info!("Ok, sleep time. Hey google set an alarm for {} minutes", checkIntervalSecs / 60);
 				} else {
 					warn!("cert cache empty");
 				}
@@ -525,6 +533,7 @@ impl ExpirationChecker {
 							let wellIsIt = self.cmSvc.IsCertificateExpired(&name, true).await;
 							if wellIsIt.is_ok() {
 								if wellIsIt.unwrap() == true {
+									debug!("generate new cert for {name}");
 									match self.cmSvc.GenerateServiceCert(&name, true).await {
 										Ok(newCert) => {
 											self.cmSvc.certUpdateChannel.send_replace((newCert, name.clone()));
@@ -556,8 +565,27 @@ impl ExpirationChecker {
 					let certID = CertificateIdentifier::try_from(certDer.first().unwrap());
 					if certID.is_ok() {
 						match self.cmSvc.GenerateACMECert(&nsc.1.namespace, &nsc.0, Some(certID.unwrap())).await {
-							Ok(_) => {}
-							Err(_) => {}
+							Ok(success) => {
+								event!(
+									target: "cert_monitor",
+									Level::INFO,
+									certType = "namespace",
+									namespace = &nsc.1.namespace,
+									timestamp = currentTime.timestamp(),
+									success = success
+								);
+							}
+							Err(e) => {
+								event!(
+									target: "cert_monitor",
+									Level::ERROR,
+									certType = "namespace",
+									namespace = &nsc.1.namespace,
+									timestamp = currentTime.timestamp(),
+									success = false,
+									reason = e
+								);
+							}
 						}
 					}
 				}

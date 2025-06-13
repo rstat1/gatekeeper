@@ -47,6 +47,7 @@ prost-reflect = { version = "0.15.2", features = ["derive", "serde"] }
 google-cloud-security-publicca-v1 = "0.3.0"
 google-cloud-auth = "0.20.0"
 rustls-pki-types = "1.12.0"
+once_cell = "1.21.3"
 
 [build-dependencies]
 tonic-build = "0.12.3"

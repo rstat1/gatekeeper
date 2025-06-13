@@ -10,12 +10,13 @@
 #![allow(nonstandard_style)]
 
 use pingora::{listeners::tls::TlsSettings, prelude::*, services::listening::Service as ListeningService};
+use std::{env, fs, path::Path, str::FromStr, sync::Arc};
 use tokio::sync::watch::Receiver;
-use std::{fs, path::Path, sync::Arc};
 use tracing::{debug, info, warn};
+use tracing_subscriber::{filter::Targets, fmt::Subscriber, prelude::*};
 
 use gatekeeper::{
-	cloudflare_api::CloudflareAPIClient,
+	cloudflare_api::*,
 	data::*,
 	gw::*,
 	services::{
@@ -23,19 +24,16 @@ use gatekeeper::{
 		v1::Service,
 	},
 	vault::{Certificate, DBCredentials, VaultClient},
+	SYSTEM_CONFIG,
 };
 
 fn main() {
-	tracing_subscriber::fmt::init();
-	info!("starting gatekeeper...");
-
 	let devMode: bool;
 	let db: Arc<DataStore>;
 	let dbCreds: DBCredentials;
 	let apiImpl: ConfigServiceImpl;
 	let vault: Arc<VaultClient>;
 	let cmSvc: Arc<CertManagerSvc>;
-	let conf: SystemConfiguration;
 	let apiServiceCert: Arc<Certificate>;
 	let srImpl: Arc<EndpointManagerImpl>;
 	let svcsList: Vec<Service>;
@@ -44,22 +42,35 @@ fn main() {
 	let mut server = Server::new(None).unwrap();
 	let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
 
+	let targets = match env::var("RUST_LOG") {
+		Ok(var) => Targets::from_str(&var)
+			.map_err(|e| {
+				eprintln!("Ignoring `RUST_LOG={:?}`: {}", var, e);
+			})
+			.unwrap_or_default(),
+		Err(env::VarError::NotPresent) => Targets::new().with_default(Subscriber::DEFAULT_MAX_LEVEL),
+		Err(e) => {
+			eprintln!("Ignoring `RUST_LOG`: {}", e);
+			Targets::new().with_default(Subscriber::DEFAULT_MAX_LEVEL)
+		}
+	};
+
+	tracing_subscriber::registry()
+		.with(targets)
+		.with(tracing_subscriber::fmt::layer())
+		.with(gatekeeper::cert_monitor::CertificateMonitorLayer::new())
+		.init();
+
+	info!("starting gatekeeper...");
+
+	info!(target: "ep_monitor", message = "hello world");
+
 	server.bootstrap();
 
-	let conf_file = std::fs::read_to_string("gatekeeper_config");
-	match conf_file {
-		Ok(file) => {
-			conf = serde_json::from_str(&file).unwrap();
-		}
-		Err(e) => panic!("{:?}", e),
-	}
+	devMode = SYSTEM_CONFIG.devMode.unwrap_or(false);
 
-	devMode = conf.devMode.unwrap_or(false);
-
-	if let Some(dev) = conf.devMode {
-		if dev {
-			info!("...in dev mode")
-		}
+	if devMode {
+		info!("...in dev mode");
 	}
 
 	let path = Path::new("certs/svcs");
@@ -67,7 +78,7 @@ fn main() {
 		fs::create_dir_all(path).unwrap();
 	}
 
-	let async_vc_init = async { VaultClient::new(&conf.vaultEndpoint, devMode).await };
+	let async_vc_init = async { VaultClient::new(&SYSTEM_CONFIG.vaultEndpoint, devMode).await };
 	match rt.block_on(async_vc_init) {
 		Ok(c) => {
 			info!("vault client init");
@@ -99,10 +110,10 @@ fn main() {
 		DataStore::new(
 			&dbCreds.username,
 			&dbCreds.password,
-			&conf.mongoEndpoint,
-			conf.collectionName,
+			&SYSTEM_CONFIG.mongoEndpoint,
+			&SYSTEM_CONFIG.collectionName,
 			vault.clone(),
-			conf.redisServerAddress.clone(),
+			&SYSTEM_CONFIG.redisServerAddress,
 			devMode,
 		)
 		.await
@@ -124,7 +135,16 @@ fn main() {
 		Err(e) => panic!("{:?}", e),
 	}
 
-	let async_ac_init = async { CertManagerSvc::new(vault.clone(), cfAPI.clone(), devMode, conf.acmeContactEmail, conf.certCheckInterval.unwrap_or(3600).into()).await };
+	let async_ac_init = async {
+		CertManagerSvc::new(
+			vault.clone(),
+			cfAPI.clone(),
+			devMode,
+			&SYSTEM_CONFIG.acmeContactEmail,
+			SYSTEM_CONFIG.certCheckInterval.unwrap_or(3600).into(),
+		)
+		.await
+	};
 	match rt.block_on(async_ac_init) {
 		Ok(ac) => {
 			info!("cmsvc init");
@@ -175,7 +195,7 @@ fn main() {
 		}
 	}
 
-	let async_sri_init = async { EndpointManagerImpl::new(db.clone(), svcsList.clone(), conf.healthCheckInterval, apiServiceCert.clone(), certUpdatesReceiver).await };
+	let async_sri_init = async { EndpointManagerImpl::new(db.clone(), svcsList.clone(), SYSTEM_CONFIG.healthCheckInterval, apiServiceCert.clone(), certUpdatesReceiver).await };
 	match rt.block_on(async_sri_init) {
 		Ok(sri) => {
 			info!("epmgr init");
@@ -186,10 +206,10 @@ fn main() {
 	apiImpl = ConfigServiceImpl::new(db.clone(), cmSvc.clone(), srImpl.clone());
 
 	let mut staticServer: ListeningService<StaticFileServer> = StaticFileServer::Service();
-	staticServer.add_tcp(conf.staticFileServerAddr.clone().unwrap_or("0.0.0.0:10000".to_string()).as_str());
+	staticServer.add_tcp(SYSTEM_CONFIG.staticFileServerAddr.clone().unwrap_or("0.0.0.0:10000".to_string()).as_str());
 
 	let mut devAuthServer: ListeningService<ExternalDeviceManager> = ExternalDeviceManager::Service(db.clone(), cmSvc.clone(), apiServiceCert.expiration, srImpl.clone());
-	devAuthServer.add_tcp(conf.devAuthServerAddr.clone().unwrap_or("0.0.0.0:10001".to_string()).as_str());
+	devAuthServer.add_tcp(SYSTEM_CONFIG.devAuthServerAddr.clone().unwrap_or("0.0.0.0:10001".to_string()).as_str());
 
 	let mut prometheus_service_http = ListeningService::prometheus_http_service();
 	prometheus_service_http.add_tcp("127.0.0.1:6150");
@@ -198,17 +218,17 @@ fn main() {
 		&server.configuration,
 		ReverseProxy::new(
 			srImpl.clone(),
-			&conf.staticFileServerAddr.unwrap_or("0.0.0.0:10000".to_string()),
+			&SYSTEM_CONFIG.staticFileServerAddr.clone().unwrap_or("0.0.0.0:10000".to_string()),
 			&apiServiceCert,
-			&conf.devAuthServerAddr.unwrap_or("0.0.0.0:10001".to_string()),
+			&SYSTEM_CONFIG.devAuthServerAddr.clone().unwrap_or("0.0.0.0:10001".to_string()),
 		),
 	);
-	proxy.add_tls_with_settings(&conf.tlsListenerAddr, None, tls_settings);
+	proxy.add_tls_with_settings(&SYSTEM_CONFIG.tlsListenerAddr, None, tls_settings);
 
 	std::thread::spawn(move || {
 		let grpcRT = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 		let grpcTask = async {
-			let addr = conf.apiServerAddr.unwrap_or("0.0.0.0:2000".to_string()).parse().unwrap();
+			let addr = SYSTEM_CONFIG.apiServerAddr.clone().unwrap_or("0.0.0.0:2000".to_string()).parse().unwrap();
 			GRPCServer::InitAndServe(addr, srImpl.clone(), Arc::new(apiImpl), apiServiceCert.clone()).await;
 		};
 		grpcRT.block_on(grpcTask);

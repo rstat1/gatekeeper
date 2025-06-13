@@ -45,13 +45,14 @@ pub struct SystemConfiguration {
 	pub tlsListenerAddr: String,
 	#[serde(rename = "listenOn")]
 	pub listenerAddr: String,
+	pub acmeContactEmail: String,
+	pub vaultCAName: String,
 	#[serde(rename = "pingIntervalSecs")]
 	pub healthCheckInterval: Option<u64>,
 	pub staticFileServerAddr: Option<String>,
 	pub devAuthServerAddr: Option<String>,
 	pub apiServerAddr: Option<String>,
 	pub devMode: Option<bool>,
-	pub acmeContactEmail: String,
 	pub certCheckInterval: Option<u32>,
 }
 
@@ -62,7 +63,7 @@ pub struct Endpoint {
 }
 
 impl DataStore {
-	pub async fn new(username: &String, password: &String, epAddr: &String, collection: String, vault: Arc<VaultClient>, redisAddr: String, dev: bool) -> Result<Arc<Self>, mongodb::error::Error> {
+	pub async fn new(username: &String, password: &String, epAddr: &String, collection: &String, vault: Arc<VaultClient>, redisAddr: &String, dev: bool) -> Result<Arc<Self>, mongodb::error::Error> {
 		let mongoEP = format!(
 			"mongodb://{}:{}@{}/{}?directconnection=true&appName=gatekeeper&retryWrites=false",
 			username, password, epAddr, collection
@@ -80,7 +81,7 @@ impl DataStore {
 		match c {
 			Ok(c) => Ok(Arc::new(DataStore {
 				mongoClient: RwLock::new(c),
-				collectionName: collection,
+				collectionName: collection.to_string(),
 				vault,
 				serverEP: epAddr.clone(),
 				redis: redisClient,

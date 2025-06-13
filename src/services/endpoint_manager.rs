@@ -7,13 +7,12 @@
 
 use crate::{
 	data::{self},
-	services::{
-		v1::{Namespace, Service},
-	},
+	services::v1::{Namespace, Service, ServiceCredentials},
 	vault::Certificate as VaultCertificate,
 };
 use bytes::Bytes;
-use http::Uri;
+use chrono::Utc;
+use http::{header, Uri};
 use pingora::{
 	connectors::http::v1::Connector,
 	protocols::ALPN,
@@ -32,7 +31,7 @@ use std::{
 	time::Duration,
 };
 use tokio::sync::{watch::Receiver, Mutex};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, event, info, warn, Level};
 use uuid::Uuid;
 
 use super::v1::NewServiceEndpoint;
@@ -372,17 +371,34 @@ impl CertChecker {
 						match self_clone.client.GetRegisteredEndpoints(&newCert.1) {
 							Some(eps) => {
 								for rep in eps {
-									self_clone.SendNewCredsToEP(rep, &newCert.0, gkCert.clone()).await;
+									if rep.runningOnK8S == false {
+										debug!("got cert update for {}", &newCert.1);
+										let ca_chain = newCert.0.ca_chain.clone().unwrap();
+										let x = ca_chain.iter().fold(String::new(), |acc, i| acc + "\n" + i);
+										self_clone
+											.SendNewCredsToEP(
+												rep,
+												&ServiceCredentials {
+													ca_cert: x,
+													certificate: newCert.0.certificate.clone(),
+													expires_at: newCert.0.expiration.unwrap_or(3600),
+													issuer_cert: newCert.0.issuing_ca.clone(),
+													private_key: newCert.0.private_key.clone(),
+												},
+												gkCert.clone(),
+											)
+											.await;
+									}
 								}
-							},
-							None => {},
+							}
+							None => {}
 						}
 					}
 				}
 			}
 		});
 	}
-	async fn SendNewCredsToEP(self: &Arc<Self>, rep: RegisteredEndpoint, newCreds: &VaultCertificate, gkCert: Arc<VaultCertificate>) {
+	async fn SendNewCredsToEP(self: &Arc<Self>, rep: RegisteredEndpoint, newCreds: &ServiceCredentials, gkCert: Arc<VaultCertificate>) {
 		let caChain = gkCert.ca_chain.as_ref().unwrap();
 		let cert = X509::from_pem(&Bytes::from(gkCert.certificate.clone())).unwrap();
 		let caInt = X509::from_pem(&Bytes::from(caChain[0].clone())).unwrap();
@@ -403,20 +419,28 @@ impl CertChecker {
 
 		match connector.get_http_session(&peer).await {
 			Ok((mut http, _reused)) => {
+				let certJSON = serde_json::to_string(&newCreds).unwrap();
 				let mut new_request = RequestHeader::build("POST", hcr.path().as_bytes(), None).unwrap();
-				new_request.insert_header("Host", rep.serviceName.clone()).unwrap();
+				new_request.insert_header(header::HOST, rep.serviceName.clone()).unwrap();
+				new_request.insert_header(header::CONTENT_LENGTH, certJSON.len()).unwrap();
 				http.write_request_header(Box::new(new_request)).await.unwrap();
 
-				let certJSON = serde_json::to_string(&newCreds).unwrap();
-				let _ = http.write_body(certJSON.as_bytes()).await;
+				let written = http.write_body(certJSON.as_bytes()).await;
+				if written.is_err() {
+					error!("{}", written.unwrap_err())
+				} else {
+					debug!("{:?}", written.unwrap());
+				}
 
 				http.finish_body().await.unwrap();
 				http.read_response().await.unwrap();
 				let mut response_body = String::new();
 				while let Some(chunk) = http.read_body_ref().await.unwrap() {
 					response_body.push_str(&String::from_utf8_lossy(&chunk));
-					if response_body != "ok" {
-						//TODO: report failures to monitoring system
+					if response_body == "ok" {
+						event!(target: "cert_monitor", Level::INFO, certType = "service", service = rep.serviceName, timestamp = Utc::now().timestamp(), success = true);
+					} else {
+						event!(target: "cert_monitor", Level::ERROR, certType = "service", service = rep.serviceName, timestamp = Utc::now().timestamp(), success = false, reason = response_body);
 					}
 				}
 			}
@@ -483,6 +507,8 @@ impl HealthChecker {
 														to_remove.push(devID.clone());
 													}
 												}
+											} else {
+												info!(target: "ep_monitor", event = "health_check", service = rep.serviceName, checkedAt = Utc::now().timestamp(), result = "success");
 											}
 										}
 										Err(e) => {
