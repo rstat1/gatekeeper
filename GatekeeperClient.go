@@ -287,9 +287,17 @@ func (gc *GatekeeperClient) certRenewTimer() {
 	}
 }
 func (gc *GatekeeperClient) newCredsReceievedFromGK(credentials cs.ServiceCredentials) {
-	err := ForceExternalSecretSync(gc.config.ServiceName)
-	if err != nil {
-		gc.logWarn("action", "ForceExternalSecretSync", err)
+	if gc.config.ClientIsRunningOnKubernetes {
+		err := ForceExternalSecretSync(gc.config.ServiceName)
+		if err != nil {
+			gc.logWarn("action", "ForceExternalSecretSync", err)
+		}
+	} else {
+		newCreds, _ := protojson.Marshal(&credentials)
+		e := os.WriteFile("gatekeeper-credentials.json", newCreds, 0o600)
+		if e != nil {
+			panic(e)
+		}
 	}
 	gc.credentials.Cert = &credentials
 	gc.config.CredentialsRenewedHandler()
