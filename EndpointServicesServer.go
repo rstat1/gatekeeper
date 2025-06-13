@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -122,6 +123,7 @@ func (ess *endpointServicesServer) renewCert(w http.ResponseWriter, r *http.Requ
 		} else {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
+			fmt.Println(newCreds)
 		}
 	} else {
 		w.WriteHeader(http.StatusInternalServerError)
