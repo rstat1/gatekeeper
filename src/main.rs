@@ -20,8 +20,9 @@ use gatekeeper::{
 	cloudflare_api::*,
 	data::*,
 	gw::*,
+	pki::CertManagerSvc,
 	services::{
-		cert_svc::CertManagerSvc, config_svc::ConfigServiceImpl, endpoint_manager::EndpointManagerImpl, ext_device::ExternalDeviceManager, grpc::GRPCServer, static_file_server::StaticFileServer,
+		config_svc::ConfigServiceImpl, endpoint_manager::EndpointManagerImpl, ext_device::ExternalDeviceManager, grpc::GRPCServer, static_file_server::StaticFileServer,
 		v1::Service,
 	},
 	vault::{Certificate, DBCredentials, VaultClient},
