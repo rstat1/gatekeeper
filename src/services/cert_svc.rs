@@ -574,11 +574,12 @@ impl ExpirationChecker {
 					if certID.is_ok() {
 						match self.cmSvc.GenerateACMECert(&nsc.1.namespace, &nsc.0, Some(certID.unwrap())).await {
 							Ok(success) => {
+								
 								event!(
 									target: "cert_monitor",
 									Level::INFO,
 									certType = "namespace",
-									namespace = &nsc.1.namespace,
+									issuedFor = &nsc.1.namespace,
 									timestamp = currentTime.timestamp(),
 									success = success
 								);
@@ -588,7 +589,7 @@ impl ExpirationChecker {
 									target: "cert_monitor",
 									Level::ERROR,
 									certType = "namespace",
-									namespace = &nsc.1.namespace,
+									issuedFor = &nsc.1.namespace,
 									timestamp = currentTime.timestamp(),
 									success = false,
 									reason = e

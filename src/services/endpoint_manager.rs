@@ -31,7 +31,7 @@ use std::{
 	time::Duration,
 };
 use tokio::sync::{watch::Receiver, Mutex};
-use tracing::{debug, error, event, info, warn, Level};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use super::v1::NewServiceEndpoint;
@@ -438,9 +438,9 @@ impl CertChecker {
 				while let Some(chunk) = http.read_body_ref().await.unwrap() {
 					response_body.push_str(&String::from_utf8_lossy(&chunk));
 					if response_body == "ok" {
-						event!(target: "cert_monitor", Level::INFO, certType = "service", service = rep.serviceName, timestamp = Utc::now().timestamp(), success = true);
+						
 					} else {
-						event!(target: "cert_monitor", Level::ERROR, certType = "service", service = rep.serviceName, timestamp = Utc::now().timestamp(), success = false, reason = response_body);
+						
 					}
 				}
 			}
