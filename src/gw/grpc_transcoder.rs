@@ -6,17 +6,17 @@
 */
 
 use async_trait::async_trait;
-use bytes::{Buf, BufMut, Bytes, BytesMut};
-use http::{HeaderMap, StatusCode};
+use bytes::{BufMut, Bytes, BytesMut};
+use http::StatusCode;
 use pingora::modules::http::{HttpModule, HttpModuleBuilder, Module};
 use pingora_core::Result;
 use pingora_http::ResponseHeader;
 use prost::Message;
-use prost_reflect::{DescriptorPool, DynamicMessage, MessageDescriptor, MethodDescriptor};
+use prost_reflect::{DescriptorPool, DynamicMessage};
 use serde::Serialize;
-use serde_json::{Deserializer, Value};
+use serde_json::Deserializer;
 use std::{any::Any, ops::Add};
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 
 #[derive(Default)]
 pub struct GRPCTranscoder {
@@ -61,10 +61,10 @@ impl HttpModule for GRPCTranscoder {
 		self
 	}
 
-	async fn request_body_filter(&mut self, body: &mut Option<Bytes>, end_of_stream: bool) -> Result<()> {
+	async fn request_body_filter(&mut self, body: &mut Option<Bytes>, _end_of_stream: bool) -> Result<()> {
 		if self.intialized {
 			debug!("self.serviceName = {}", self.service);
-			let mut rb = String::new();
+			let rb: String;
 			let md = self
 				.descriptorPool
 				.get_service_by_name(&self.service)
@@ -84,7 +84,7 @@ impl HttpModule for GRPCTranscoder {
 				let mut buf = BytesMut::with_capacity(dm.encoded_len() + 1);
 				buf.put_u8(0);
 				buf.put_u32(dm.encoded_len().try_into().unwrap());
-				dm.encode(&mut buf);
+				let _ = dm.encode(&mut buf);
 				*body = Some(Bytes::from(buf.freeze()));
 				self.outputMessageType = method.output().full_name().to_string();
 			}
@@ -97,7 +97,7 @@ impl HttpModule for GRPCTranscoder {
 		if !self.intialized {
 			return Ok(());
 		}
-		if (end_of_stream) {
+		if end_of_stream {
 			debug!("end of stream time to get to work on a {} byte buffer", self.currentMaxLen);
 			if self.currentMaxLen > 0 {
 				let md = self
@@ -107,8 +107,6 @@ impl HttpModule for GRPCTranscoder {
 					.methods()
 					.find(|n| n.method_descriptor_proto().name.as_ref().unwrap() == self.method.as_str());
 				if let Some(method) = md {
-					let isCompressed = self.currentBuffer.get_u8();
-					let msgLen = self.currentBuffer.get_u32();
 					match DynamicMessage::decode(method.output(), self.currentBuffer.as_ref()) {
 						Ok(msg) => {
 							let mut serializer = serde_json::Serializer::new(vec![]);
@@ -142,12 +140,12 @@ impl HttpModule for GRPCTranscoder {
 		debug!("response_header_filter {} {:?}", self.currentMaxLen, resp.get_reason_phrase());
 		if let Some(grpcStatus) = resp.headers.get("Grpc-Status") {
 			if grpcStatus.to_str().unwrap() != "0" {
-				resp.set_status(StatusCode::INTERNAL_SERVER_ERROR);
+				let _ = resp.set_status(StatusCode::INTERNAL_SERVER_ERROR);
 			}
 		}
 		if let Some(respReason) = resp.get_reason_phrase() {
 			if respReason == "OK" {
-				resp.insert_header("content-type", "application/json");
+				let _ = resp.insert_header("content-type", "application/json");
 			}
 		}
 		Ok(())

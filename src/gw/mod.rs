@@ -8,24 +8,19 @@
 //This is stupid. I shouldn't need to clutter up the code like this to disable stupid
 //messages about formatting that shouldn't be complier warnings.
 #![allow(nonstandard_style)]
-#![allow(unused)]
 
 use http::Uri;
 use pingora::tls::{pkey::PKey, ssl::NameType, x509::X509};
-use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 use tonic::async_trait;
 use tracing::{debug, error, info};
 
 use crate::{
-	data::DataStore,
 	pki::CertManagerSvc,
-	services::{
-		endpoint_manager::EndpointManagerImpl,
-		v1::{Alias, Service},
-	},
-	vault::{Certificate, VaultClient},
+	services::
+		endpoint_manager::EndpointManagerImpl
+	,
+	vault::{Certificate},
 };
 
 const DEVICE_API_CONTENT_TYPE: &str = "application/x-gatekeeper-device-api";

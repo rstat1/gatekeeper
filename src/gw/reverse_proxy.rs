@@ -5,14 +5,13 @@
 * found in the included LICENSE file.
 */
 
-use std::{net::SocketAddr, ops::Add, sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use http::{
-	header::{self, CONTENT_TYPE},
-	uri::Authority,
-	HeaderValue, Method, Uri,
+	header::{self},
+	Method, Uri,
 };
 use pingora::{
 	modules::http::{
@@ -20,24 +19,19 @@ use pingora::{
 		HttpModules,
 	},
 	protocols::ALPN,
-	tls::{pkey::PKey, ssl::NameType, x509::X509},
-	upstreams::peer::{Peer, PeerOptions},
+	tls::{pkey::PKey, x509::X509},
+	upstreams::peer::PeerOptions,
 	utils::tls::CertKey,
 	Error,
-	ErrorType::{self, Custom, CustomCode, HTTPStatus, InternalError, ReadError},
+	ErrorType::{self, CustomCode, ReadError},
 	OrErr,
 };
 use pingora_core::{upstreams::peer::HttpPeer, Result};
 use pingora_http::ResponseHeader;
 use pingora_proxy::{FailToProxy, ProxyHttp, Session};
-use prost::Message;
-use prost_reflect::{DescriptorPool, DynamicMessage, SerializeOptions};
-use serde::Serialize;
-use serde_json::Deserializer;
-use tracing::{debug, error, info, warn};
-use tracing_subscriber::field::debug;
+use tracing::{debug, error, warn};
 
-use crate::{data::DataStore, generate_err_page, no_endpoint_err, not_found_error};
+use crate::{generate_err_page, no_endpoint_err, not_found_error};
 
 use super::{grpc_transcoder::GRPCTranscoder, DEVICE_API_CONTENT_TYPE};
 
@@ -51,7 +45,6 @@ pub struct RequestContext {
 	currentPeer: Option<SocketAddr>,
 	isHTTPToRPCRequest: bool,
 	grpcMethodToCall: Option<String>,
-	messageLength: u32,
 	authority: String,
 }
 
@@ -69,7 +62,6 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 			redirectDeviceAuthAttempt: false,
 			isHTTPToRPCRequest: false,
 			grpcMethodToCall: None,
-			messageLength: 0,
 			authority: String::new(),
 		}
 	}
@@ -80,7 +72,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 	}
 
 	async fn early_request_filter(&self, session: &mut Session, _ctx: &mut Self::CTX) -> Result<()> {
-		let mut uri: Uri;
+		let uri: Uri;
 
 		if session.is_http2() {
 			uri = session.as_http2().unwrap().req_header().uri.clone();
@@ -101,7 +93,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 
 		let host = uri.authority().unwrap().to_string();
 		let hostParts: Vec<&str> = host.splitn(2, ".").collect();
-		let mut base = hostParts[1].to_string();
+		let base = hostParts[1].to_string();
 
 		if self.epMgr.IsValidDomain(&base) {
 			if self.epMgr.IsRPCGatewayEnabled(&hostParts[0].to_string()) && uri.path().starts_with("/rpc") {
@@ -117,7 +109,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 	where
 		Self::CTX: Send + Sync,
 	{
-		let mut uri: Uri;
+		let uri: Uri;
 		let contentTypeHeader = session.get_header("content-type");
 
 		if session.is_http2() {
@@ -136,7 +128,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 		}
 
 		if let Some(isDevAuthSvc) = contentTypeHeader {
-			ctx.redirectDeviceAuthAttempt = isDevAuthSvc.to_str().unwrap() == "application/x-gatekeeper-device-api";
+			ctx.redirectDeviceAuthAttempt = isDevAuthSvc.to_str().unwrap() == DEVICE_API_CONTENT_TYPE;
 			if ctx.redirectDeviceAuthAttempt {
 				return Ok(false);
 			}
@@ -169,8 +161,8 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 				session
 					.req_header_mut()
 					.set_uri(format!("https://{}{}", ctx.authority, uri.path().strip_prefix("/rpc").unwrap()).parse().unwrap());
-				session.req_header_mut().insert_header("content-type", "application/grpc");
-				session.req_header_mut().insert_header("te", "trailers");
+				let _ = session.req_header_mut().insert_header("content-type", "application/grpc");
+				let _ = session.req_header_mut().insert_header("te", "trailers");
 				session.req_header_mut().remove_header("accept");
 				session.req_header_mut().set_method(Method::POST);
 				session.req_header_mut().set_send_end_stream(false);
@@ -182,7 +174,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 				debug!("grpcMethodToCall: {:?}", ctx.grpcMethodToCall);
 			} else {
 				let mut h = ResponseHeader::build(400, None).unwrap();
-				h.insert_header("content-type", "text/html");
+				let _ = h.insert_header("content-type", "text/html");
 				session.write_response_header(Box::new(h), true).await?;
 				session
 					.write_response_body(
@@ -212,7 +204,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 		}
 
 		let mut h = ResponseHeader::build(404, None).unwrap();
-		h.insert_header("content-type", "text/html");
+		let _ = h.insert_header("content-type", "text/html");
 		session.write_response_header(Box::new(h), true).await?;
 		session
 			.write_response_body(Some(Bytes::from(String::into_bytes(not_found_error(format!("{}.{}", ctx.service, ctx.base))))), true)
@@ -265,7 +257,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 	}
 
 	async fn upstream_peer(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<Box<HttpPeer>> {
-		let mut svcNameForLookup: String;
+		let svcNameForLookup: String;
 
 		if ctx.redirectToStaticServer {
 			debug!("forward to StaticFile service");
@@ -315,7 +307,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 			}
 		} else {
 			let mut h = ResponseHeader::build(503, None).unwrap();
-			h.insert_header("content-type", "text/html");
+			let _ = h.insert_header("content-type", "text/html");
 			session.write_response_header(Box::new(h), true).await?;
 			session.write_response_body(Some(Bytes::from(String::into_bytes(no_endpoint_err()))), true).await?;
 			session.set_keepalive(None);
@@ -338,7 +330,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 	where
 		Self::CTX: Send + Sync,
 	{
-		let mut uri: Uri;
+		let uri: Uri;
 
 		if session.is_http2() {
 			uri = session.as_http2().unwrap().req_header().uri.clone();

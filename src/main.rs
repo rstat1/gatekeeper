@@ -21,10 +21,7 @@ use gatekeeper::{
 	data::*,
 	gw::*,
 	pki::CertManagerSvc,
-	services::{
-		config_svc::ConfigServiceImpl, endpoint_manager::EndpointManagerImpl, ext_device::ExternalDeviceManager, grpc::GRPCServer, static_file_server::StaticFileServer,
-		v1::Service,
-	},
+	services::{config_svc::ConfigServiceImpl, endpoint_manager::EndpointManagerImpl, ext_device::ExternalDeviceManager, grpc::GRPCServer, static_file_server::StaticFileServer, v1::Service},
 	vault::{Certificate, DBCredentials, VaultClient},
 	SYSTEM_CONFIG,
 };
@@ -103,18 +100,14 @@ fn main() {
 		Err(e) => panic!("{:?}", e),
 	}
 
-	let async_db_init = async {
-		DataStore::new(
-			&dbCreds.username,
-			&dbCreds.password,
-			&SYSTEM_CONFIG.mongoEndpoint,
-			&SYSTEM_CONFIG.collectionName,
-			vault.clone(),
-			&SYSTEM_CONFIG.redisServerAddress,
-			devMode,
-		)
-		.await
-	};
+	match CacheService::new() {
+		Ok(client) => {
+			cache = Arc::new(client);
+		}
+		Err(e) => panic!("{}", e),
+	}
+
+	let async_db_init = async { DataStore::new(&dbCreds.username, &dbCreds.password, vault.clone(), cache).await };
 	match rt.block_on(async_db_init) {
 		Ok(ds) => {
 			info!("mongodb client init");
@@ -132,14 +125,7 @@ fn main() {
 		Err(e) => panic!("{:?}", e),
 	}
 
-	match CacheService::new() {
-		Ok(client) => {
-			cache = Arc::new(client);
-		}
-		Err(e) => panic!("{}", e),
-	}
-
-	let async_ac_init = async { CertManagerSvc::new(vault.clone(), cfAPI.clone(), cache.clone()).await };
+	let async_ac_init = async { CertManagerSvc::new(vault.clone(), cfAPI.clone()).await };
 	match rt.block_on(async_ac_init) {
 		Ok(ac) => {
 			info!("cmsvc init");
@@ -206,9 +192,6 @@ fn main() {
 	let mut devAuthServer: ListeningService<ExternalDeviceManager> = ExternalDeviceManager::Service(db.clone(), cmSvc.clone(), apiServiceCert.expiration, srImpl.clone());
 	devAuthServer.add_tcp(SYSTEM_CONFIG.devAuthServerAddr.clone().unwrap_or("0.0.0.0:10001".to_string()).as_str());
 
-	let mut prometheus_service_http = ListeningService::prometheus_http_service();
-	prometheus_service_http.add_tcp("127.0.0.1:6150");
-
 	let mut proxy = pingora_proxy::http_proxy_service(
 		&server.configuration,
 		ReverseProxy::new(
@@ -223,7 +206,8 @@ fn main() {
 	std::thread::spawn(move || {
 		let grpcRT = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 		let grpcTask = async {
-			let addr = SYSTEM_CONFIG.apiServerAddr.clone().unwrap_or("0.0.0.0:2000".to_string()).parse().unwrap();
+			let apiServAddr = format!("{}:2000", SYSTEM_CONFIG.apiServerAddr.clone().unwrap_or("0.0.0.0".to_string()));
+			let addr = apiServAddr.parse().unwrap();
 			GRPCServer::InitAndServe(addr, srImpl.clone(), Arc::new(apiImpl), apiServiceCert.clone()).await;
 		};
 		grpcRT.block_on(grpcTask);
@@ -232,6 +216,5 @@ fn main() {
 	server.add_service(proxy);
 	server.add_service(staticServer);
 	server.add_service(devAuthServer);
-	server.add_service(prometheus_service_http);
 	server.run_forever();
 }

@@ -20,7 +20,7 @@ use tracing::error;
 
 use crate::{
 	services::v1::{Alias, Namespace, Service},
-	vault::VaultClient,
+	vault::VaultClient, SYSTEM_CONFIG,
 };
 
 pub struct DataStore {
@@ -28,8 +28,7 @@ pub struct DataStore {
 	serverEP: String,
 	collectionName: String,
 	vault: Arc<VaultClient>,
-	pub redis: redis::Client,
-	cache: CacheService,
+	cache: Arc<CacheService>,
 	dev: bool,
 }
 pub struct CacheService {
@@ -68,30 +67,21 @@ pub struct Endpoint {
 }
 
 impl DataStore {
-	pub async fn new(username: &String, password: &String, epAddr: &String, collection: &String, vault: Arc<VaultClient>, redisAddr: &String, dev: bool) -> Result<Arc<Self>, mongodb::error::Error> {
+	pub async fn new(username: &String, password: &String, vault: Arc<VaultClient>, cache: Arc<CacheService>) -> Result<Arc<Self>, mongodb::error::Error> {
 		let mongoEP = format!(
 			"mongodb://{}:{}@{}/{}?directconnection=true&appName=gatekeeper&retryWrites=false",
-			username, password, epAddr, collection
+			username, password, SYSTEM_CONFIG.mongoEndpoint, SYSTEM_CONFIG.collectionName
 		);
-
-		let redisClient = match redis::Client::open(format!("redis://{}", redisAddr)) {
-			Ok(c) => c,
-			Err(e) => {
-				error!("error connecting to redis: {e}");
-				return Err(mongodb::error::Error::custom("Failed to connect to Redis"));
-			}
-		};
 
 		let c = Client::with_uri_str(mongoEP.clone()).await;
 		match c {
 			Ok(c) => Ok(Arc::new(DataStore {
 				mongoClient: RwLock::new(c),
-				collectionName: collection.to_string(),
+				collectionName: SYSTEM_CONFIG.collectionName.clone(),
 				vault,
-				serverEP: epAddr.clone(),
-				redis: redisClient,
-				cache: CacheService::new().unwrap(),
-				dev,
+				serverEP: SYSTEM_CONFIG.collectionName.clone(),
+				cache: cache.clone(),
+				dev: SYSTEM_CONFIG.devMode.unwrap_or(false),
 			})),
 			Err(e) => Err(e),
 		}

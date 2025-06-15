@@ -1,4 +1,3 @@
-
 /*
 * Copyright (c) 2025 A Large Red Robot (rstat1@alargerobot.dev)
 *
@@ -9,7 +8,10 @@
 pub mod supported_ca;
 
 use crate::{
-	cloudflare_api::CloudflareAPIClient, data::CacheService, pki::supported_ca::SupportedCA, vault::{Certificate, VaultClient}, SYSTEM_CONFIG
+	cloudflare_api::CloudflareAPIClient,
+	pki::supported_ca::SupportedCA,
+	vault::{Certificate, VaultClient},
+	SYSTEM_CONFIG,
 };
 use base64::{alphabet, engine, engine::general_purpose, Engine};
 use chrono::Utc;
@@ -22,7 +24,7 @@ use p384::{
 	ecdsa::{signature::Verifier, *},
 	SecretKey,
 };
-use rand::{Rng, rngs::StdRng, SeedableRng};
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use rustls_pki_types::{pem::PemObject, CertificateDer};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -54,7 +56,6 @@ pub struct CertManagerSvc {
 	devMode: bool,
 	vault: Arc<VaultClient>,
 	acmeContactEmail: String,
-	cache: Arc<CacheService>,
 	cfAPI: Arc<CloudflareAPIClient>,
 	certUpdateChannel: Sender<(Certificate, String)>,
 	nsCertCache: RwLock<HashMap<String, NSCertificate>>,
@@ -97,7 +98,7 @@ impl HttpClient for ACMEHTTPClient {
 	}
 }
 impl CertManagerSvc {
-	pub async fn new(vault: Arc<VaultClient>, cfAPI: Arc<CloudflareAPIClient>, cache: Arc<CacheService>) -> Result<(Arc<Self>, Receiver<(Certificate, String)>), String> {
+	pub async fn new(vault: Arc<VaultClient>, cfAPI: Arc<CloudflareAPIClient>) -> Result<(Arc<Self>, Receiver<(Certificate, String)>), String> {
 		let mut nsCertCache: HashMap<String, NSCertificate> = HashMap::default();
 		match vault.ListAllKeysAtKVPath("gatekeeper", Some("ns-certs")).await {
 			Ok(keys) => {
@@ -131,7 +132,6 @@ impl CertManagerSvc {
 			acmeContactEmail: SYSTEM_CONFIG.acmeContactEmail.clone(),
 			nsCertCache: RwLock::new(nsCertCache),
 			certUpdateChannel,
-			cache,
 		});
 		cmSvc.startExpireChecker(SYSTEM_CONFIG.certCheckInterval.unwrap_or(3600).into());
 		Ok((cmSvc, recv))
@@ -573,7 +573,6 @@ impl ExpirationChecker {
 					if certID.is_ok() {
 						match self.cmSvc.GenerateACMECert(&nsc.1.namespace, &nsc.0, Some(certID.unwrap())).await {
 							Ok(success) => {
-								
 								event!(
 									target: "cert_monitor",
 									Level::INFO,
