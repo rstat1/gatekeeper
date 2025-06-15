@@ -22,9 +22,9 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, error};
 use uuid::Uuid;
 
-use crate::data::DataStore;
+use crate::{pki::CertManagerSvc, data::DataStore};
 
-use super::{cert_svc::CertManagerSvc, endpoint_manager::EndpointManagerImpl};
+use super::{ endpoint_manager::EndpointManagerImpl};
 
 pub struct ExternalDeviceManager {
 	db: Arc<DataStore>,

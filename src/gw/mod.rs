@@ -20,8 +20,8 @@ use tracing::{debug, error, info};
 
 use crate::{
 	data::DataStore,
+	pki::CertManagerSvc,
 	services::{
-		cert_svc::CertManagerSvc,
 		endpoint_manager::EndpointManagerImpl,
 		v1::{Alias, Service},
 	},

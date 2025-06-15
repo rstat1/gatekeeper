@@ -6,13 +6,11 @@
 */
 
 pub mod auth_service;
-pub mod cert_svc;
 pub mod config_svc;
 pub mod endpoint_manager;
 pub mod ext_device;
 pub mod grpc;
 pub mod static_file_server;
-pub mod supported_ca;
 
 #[macro_export]
 macro_rules! grpc_include {

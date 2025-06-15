@@ -18,7 +18,8 @@ pub mod gw;
 pub mod services;
 pub mod vault;
 pub mod cloudflare_api;
-pub mod cert_monitor;
+pub mod pki;
+
 
 const ERROR_PAGE: &'static str = include_str!("assets/error_page.html");
 

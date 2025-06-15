@@ -8,8 +8,9 @@
 use tracing::error;
 use uuid::Uuid;
 
-use super::{cert_svc::CertManagerSvc, v1::*};
+use super::{v1::*};
 use crate::{
+	pki::CertManagerSvc,
 	data::DataStore,
 	services::{
 		endpoint_manager::EndpointManagerImpl,

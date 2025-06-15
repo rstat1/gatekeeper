@@ -1,3 +1,4 @@
+
 /*
 * Copyright (c) 2025 A Large Red Robot (rstat1@alargerobot.dev)
 *
@@ -5,12 +6,10 @@
 * found in the included LICENSE file.
 */
 
-use super::supported_ca::SupportedCA;
+pub mod supported_ca;
+
 use crate::{
-	cloudflare_api::CloudflareAPIClient,
-	data::CacheService,
-	vault::{Certificate, VaultClient},
-	SYSTEM_CONFIG,
+	cloudflare_api::CloudflareAPIClient, data::CacheService, pki::supported_ca::SupportedCA, vault::{Certificate, VaultClient}, SYSTEM_CONFIG
 };
 use base64::{alphabet, engine, engine::general_purpose, Engine};
 use chrono::Utc;
