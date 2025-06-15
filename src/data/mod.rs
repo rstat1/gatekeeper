@@ -5,13 +5,14 @@
 * found in the included LICENSE file.
 */
 
+pub mod cache;
+
 use futures::stream::TryStreamExt;
 use mongodb::{
 	bson::{doc, Document},
 	error::ErrorKind,
 	Client, ClientSession, Collection,
 };
-use redis::Commands;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{future::Future, sync::Arc};
 use tokio::sync::RwLock;
@@ -28,7 +29,11 @@ pub struct DataStore {
 	collectionName: String,
 	vault: Arc<VaultClient>,
 	pub redis: redis::Client,
+	cache: CacheService,
 	dev: bool,
+}
+pub struct CacheService {
+	pub redis: redis::Client,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -85,6 +90,7 @@ impl DataStore {
 				vault,
 				serverEP: epAddr.clone(),
 				redis: redisClient,
+				cache: CacheService::new().unwrap(),
 				dev,
 			})),
 			Err(e) => Err(e),
@@ -290,40 +296,13 @@ impl DataStore {
 		.await
 	}
 	pub fn ReadStringFromRedis(&self, key: String) -> Result<String, String> {
-		match self.redis.get_connection() {
-			Ok(mut conn) => {
-				let result: redis::RedisResult<String> = conn.get(key);
-				match result {
-					Ok(v) => Ok(v),
-					Err(e) => Err(format!("ReadStringFromRedis: {e}")),
-				}
-			}
-			Err(e) => Err(e.to_string()),
-		}
+		self.cache.ReadStringFromRedis(key)
 	}
 	pub fn WriteStringToRedis(&self, key: &String, value: &String) -> Result<bool, String> {
-		match self.redis.get_connection() {
-			Ok(mut conn) => {
-				let result: redis::RedisResult<()> = conn.set(key, value);
-				match result {
-					Ok(_) => Ok(true),
-					Err(e) => Err(format!("WriteStringToRedis: {e}")),
-				}
-			}
-			Err(e) => Err(e.to_string()),
-		}
+		self.cache.WriteStringToRedis(key, value)
 	}
 	pub fn WriteStringToRedisWithTTL(&self, key: &String, value: &String, ttl: u64) -> Result<bool, String> {
-		match self.redis.get_connection() {
-			Ok(mut conn) => {
-				let result: redis::RedisResult<()> = conn.set_ex(key, value, ttl);
-				match result {
-					Ok(_) => Ok(true),
-					Err(e) => Err(format!("WriteStringToRedisWithTTL: {e}")),
-				}
-			}
-			Err(e) => Err(e.to_string()),
-		}
+		self.cache.WriteStringToRedisWithTTL(key, value, ttl)
 	}
 	async fn addServiceToNamespace(&self, serviceName: &String, domainName: &String, session: &mut ClientSession) -> Result<bool, mongodb::error::Error> {
 		//TODO: use retryable query.

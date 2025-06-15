@@ -9,6 +9,7 @@
 //messages about formatting that shouldn't be complier warnings.
 #![allow(nonstandard_style)]
 
+use core::panic;
 use pingora::{listeners::tls::TlsSettings, prelude::*, services::listening::Service as ListeningService};
 use std::{env, fs, path::Path, str::FromStr, sync::Arc};
 use tokio::sync::watch::Receiver;
@@ -37,6 +38,7 @@ fn main() {
 	let apiServiceCert: Arc<Certificate>;
 	let srImpl: Arc<EndpointManagerImpl>;
 	let svcsList: Vec<Service>;
+	let cache: Arc<CacheService>;
 	let cfAPI: Arc<CloudflareAPIClient>;
 	let certUpdatesReceiver: Receiver<(Certificate, String)>;
 	let mut server = Server::new(None).unwrap();
@@ -55,15 +57,9 @@ fn main() {
 		}
 	};
 
-	tracing_subscriber::registry()
-		.with(targets)
-		.with(tracing_subscriber::fmt::layer())
-		.with(gatekeeper::cert_monitor::CertificateMonitorLayer::new())
-		.init();
+	tracing_subscriber::registry().with(targets).with(tracing_subscriber::fmt::layer()).init();
 
 	info!("starting gatekeeper...");
-
-	info!(target: "ep_monitor", message = "hello world");
 
 	server.bootstrap();
 
@@ -135,16 +131,14 @@ fn main() {
 		Err(e) => panic!("{:?}", e),
 	}
 
-	let async_ac_init = async {
-		CertManagerSvc::new(
-			vault.clone(),
-			cfAPI.clone(),
-			devMode,
-			&SYSTEM_CONFIG.acmeContactEmail,
-			SYSTEM_CONFIG.certCheckInterval.unwrap_or(3600).into(),
-		)
-		.await
-	};
+	match CacheService::new() {
+		Ok(client) => {
+			cache = Arc::new(client);
+		}
+		Err(e) => panic!("{}", e),
+	}
+
+	let async_ac_init = async { CertManagerSvc::new(vault.clone(), cfAPI.clone(), cache.clone()).await };
 	match rt.block_on(async_ac_init) {
 		Ok(ac) => {
 			info!("cmsvc init");

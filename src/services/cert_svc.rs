@@ -8,7 +8,9 @@
 use super::supported_ca::SupportedCA;
 use crate::{
 	cloudflare_api::CloudflareAPIClient,
+	data::CacheService,
 	vault::{Certificate, VaultClient},
+	SYSTEM_CONFIG,
 };
 use base64::{alphabet, engine, engine::general_purpose, Engine};
 use chrono::Utc;
@@ -21,8 +23,7 @@ use p384::{
 	ecdsa::{signature::Verifier, *},
 	SecretKey,
 };
-use rand::Rng;
-use rand::{rngs::StdRng, SeedableRng};
+use rand::{Rng, rngs::StdRng, SeedableRng};
 use rustls_pki_types::{pem::PemObject, CertificateDer};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -54,6 +55,7 @@ pub struct CertManagerSvc {
 	devMode: bool,
 	vault: Arc<VaultClient>,
 	acmeContactEmail: String,
+	cache: Arc<CacheService>,
 	cfAPI: Arc<CloudflareAPIClient>,
 	certUpdateChannel: Sender<(Certificate, String)>,
 	nsCertCache: RwLock<HashMap<String, NSCertificate>>,
@@ -96,9 +98,7 @@ impl HttpClient for ACMEHTTPClient {
 	}
 }
 impl CertManagerSvc {
-	pub async fn new(
-		vault: Arc<VaultClient>, cfAPI: Arc<CloudflareAPIClient>, devMode: bool, acmeContactEmail: &String, certCheckInterval: u64,
-	) -> Result<(Arc<Self>, Receiver<(Certificate, String)>), String> {
+	pub async fn new(vault: Arc<VaultClient>, cfAPI: Arc<CloudflareAPIClient>, cache: Arc<CacheService>) -> Result<(Arc<Self>, Receiver<(Certificate, String)>), String> {
 		let mut nsCertCache: HashMap<String, NSCertificate> = HashMap::default();
 		match vault.ListAllKeysAtKVPath("gatekeeper", Some("ns-certs")).await {
 			Ok(keys) => {
@@ -125,8 +125,16 @@ impl CertManagerSvc {
 			}
 		}
 		let (certUpdateChannel, recv) = channel((Certificate::default(), "".to_string()));
-		let cmSvc = Arc::new(Self { vault, cfAPI, devMode, acmeContactEmail: acmeContactEmail.clone(), nsCertCache: RwLock::new(nsCertCache), certUpdateChannel });
-		cmSvc.startExpireChecker(certCheckInterval);
+		let cmSvc = Arc::new(Self {
+			vault,
+			cfAPI,
+			devMode: SYSTEM_CONFIG.devMode.unwrap_or(false),
+			acmeContactEmail: SYSTEM_CONFIG.acmeContactEmail.clone(),
+			nsCertCache: RwLock::new(nsCertCache),
+			certUpdateChannel,
+			cache,
+		});
+		cmSvc.startExpireChecker(SYSTEM_CONFIG.certCheckInterval.unwrap_or(3600).into());
 		Ok((cmSvc, recv))
 	}
 	pub async fn GenerateServiceCert(&self, serviceName: &String, saveToVault: bool) -> Result<Certificate, String> {
