@@ -8,15 +8,17 @@
 use tracing::error;
 use uuid::Uuid;
 
-use super::{v1::*};
+use super::v1::*;
 use crate::{
-	pki::CertManagerSvc,
 	data::DataStore,
+	pki::{
+		status_api::{CertStatusRegistry, CertificateType, RegisteredCertificate},
+		CertManagerSvc,
+	},
 	services::{
 		endpoint_manager::EndpointManagerImpl,
 		v1::{Namespace, Service},
 	},
-	vault::Certificate,
 };
 use std::sync::Arc;
 
@@ -25,26 +27,28 @@ pub struct ConfigServiceImpl {
 	db: Arc<DataStore>,
 	cmSvc: Arc<CertManagerSvc>,
 	epMgr: Arc<EndpointManagerImpl>,
+	certStatusRegistry: Arc<CertStatusRegistry>,
 }
 
 impl ConfigServiceImpl {
-	pub fn new(db: Arc<DataStore>, cmSvc: Arc<CertManagerSvc>, epMgr: Arc<EndpointManagerImpl>) -> Self {
-		ConfigServiceImpl { db, cmSvc, epMgr }
+	pub fn new(db: Arc<DataStore>, cmSvc: Arc<CertManagerSvc>, epMgr: Arc<EndpointManagerImpl>, certStatusRegistry: Arc<CertStatusRegistry>) -> Self {
+		ConfigServiceImpl { db, cmSvc, epMgr, certStatusRegistry }
 	}
-	pub async fn NewService(&self, svc: &Service, parentDomain: &String) -> Result<(String, Certificate), String> {
-		let svcCert: Certificate;
+	pub async fn NewService(&self, svc: &Service, parentDomain: &String) -> Result<(String, ServiceCredentials), String> {
+		let svcCert: ServiceCredentials;
 		let mut svc = svc.clone();
 		svc.id = Uuid::now_v7().to_string();
 
 		match self.db.GetNamespaceByName(parentDomain).await {
 			Ok(Some(_)) => {
-				match self.cmSvc.GenerateServiceCert(&svc.name, true).await {
+				match self.cmSvc.GenerateServiceCert(&svc.name).await {
 					Ok(c) => svcCert = c,
 					Err(e) => return Err(e),
 				};
 				match self.db.NewService(&svc, parentDomain).await {
 					Ok(r) => {
 						if r {
+							self.certStatusRegistry.Add(RegisteredCertificate { issuedFor: svc.name, certType: CertificateType::Endpoint }).await;
 							Ok((svc.id, svcCert))
 						} else {
 							Err("already exists".to_string())
@@ -53,7 +57,7 @@ impl ConfigServiceImpl {
 					Err(e) => Err(e.to_string()),
 				}
 			}
-			Ok(None) => Err(format!("unknown service domain {}", parentDomain)),
+			Ok(None) => Err(format!("unknown namespace {}", parentDomain)),
 			Err(e) => Err(e.to_string()),
 		}
 	}
@@ -70,6 +74,7 @@ impl ConfigServiceImpl {
 							let r = cert_mgr.GenerateACMECert(&domain.base, &domain_id, None).await;
 							if r.is_err() {
 								error!("{}", r.unwrap_err());
+							} else {
 							}
 						});
 					}
@@ -125,12 +130,15 @@ impl ConfigServiceImpl {
 			Ok(success) => {
 				if success {
 					match self.cmSvc.RevokeNSCert(id).await {
-						Ok(()) => Ok(true),
+						Ok(()) => {}
 						Err(e) => {
 							error!("{e}");
-							Err(e)
+							return Err(e);
 						}
 					}
+					let name = self.epMgr.NSIDToname(id).await;
+					self.certStatusRegistry.Remove(&name).await;
+					Ok(true)
 				} else {
 					Ok(false)
 				}
@@ -148,23 +156,29 @@ impl ConfigServiceImpl {
 	}
 	pub async fn DeleteService(&self, id: &String) -> Result<bool, String> {
 		match self.epMgr.ServiceIdToName(id) {
-			Ok(name) => {
-				let result = self.cmSvc.RevokeServiceCert(&name).await;
-				if result.is_ok() {
-					self.db.DeleteService(id).await.map_err(|e| String::from(e.to_string()))
-				} else {
-					Err(result.unwrap_err())
+			Ok(name) => match self.db.DeleteService(id).await {
+				Ok(r) => {
+					if r {
+						match self.cmSvc.RevokeServiceCert(&name).await {
+							Ok(()) => {
+								self.epMgr.RemoveService(name);
+								return Ok(true);
+							}
+							Err(e) => return Err(format!("DeleteService: RevokeServiceCert: {}",e)),
+						}
+					} else {
+						return Ok(false);
+					}
 				}
+				Err(e) => Err(format!("DeleteService: {}",e))
 			},
 			Err(_) => Err("failed to convert service name to ID".to_string()),
 		}
 	}
 	pub async fn RenewServiceCredentials(&self, name: &String) -> Result<ServiceCredentials, String> {
-		match self.cmSvc.GenerateServiceCert(name, false).await {
+		match self.cmSvc.GenerateServiceCert(name).await {
 			Ok(c) => {
-				let ca_chain = c.ca_chain.unwrap();
-				let x = ca_chain.iter().fold(String::new(), |acc, i| acc + "\n" + i);
-				return Ok(ServiceCredentials { ca_cert: x, certificate: c.certificate, expires_at: c.expiration.unwrap_or(0), issuer_cert: c.issuing_ca, private_key: c.private_key });
+				return Ok(c);
 			}
 			Err(e) => return Err(e),
 		};

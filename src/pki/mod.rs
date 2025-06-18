@@ -5,12 +5,14 @@
 * found in the included LICENSE file.
 */
 
+pub mod status_api;
 pub mod supported_ca;
 
 use crate::{
 	cloudflare_api::CloudflareAPIClient,
-	pki::supported_ca::SupportedCA,
-	vault::{Certificate, VaultClient},
+	pki::{status_api::*, supported_ca::SupportedCA},
+	services::v1::ServiceCredentials,
+	vault::VaultClient,
 	SYSTEM_CONFIG,
 };
 use base64::{alphabet, engine, engine::general_purpose, Engine};
@@ -28,15 +30,16 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use rustls_pki_types::{pem::PemObject, CertificateDer};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, future::Future, path::Path, pin::Pin, sync::Arc, time::Duration};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc, time::Duration};
 use tokio::{
+	runtime::Handle,
 	sync::{
 		watch::{channel, Receiver, Sender},
 		RwLock,
 	},
 	time::sleep,
 };
-use tracing::{debug, error, event, info, warn, Level};
+use tracing::{debug, error, info, warn};
 use x509_parser::pem::parse_x509_pem;
 
 struct ACMEHTTPClient;
@@ -57,8 +60,10 @@ pub struct CertManagerSvc {
 	vault: Arc<VaultClient>,
 	acmeContactEmail: String,
 	cfAPI: Arc<CloudflareAPIClient>,
-	certUpdateChannel: Sender<(Certificate, String)>,
+	certStatusReg: Arc<CertStatusRegistry>,
 	nsCertCache: RwLock<HashMap<String, NSCertificate>>,
+	certUpdateChannel: Sender<(ServiceCredentials, String)>,
+	svcCertCache: RwLock<HashMap<String, ServiceCredentials>>,
 }
 
 impl ACMEHTTPClient {}
@@ -98,8 +103,9 @@ impl HttpClient for ACMEHTTPClient {
 	}
 }
 impl CertManagerSvc {
-	pub async fn new(vault: Arc<VaultClient>, cfAPI: Arc<CloudflareAPIClient>) -> Result<(Arc<Self>, Receiver<(Certificate, String)>), String> {
+	pub async fn new(vault: Arc<VaultClient>, cfAPI: Arc<CloudflareAPIClient>, certStatusReg: Arc<CertStatusRegistry>) -> Result<(Arc<Self>, Receiver<(ServiceCredentials, String)>), String> {
 		let mut nsCertCache: HashMap<String, NSCertificate> = HashMap::default();
+		let mut svcCertCache: HashMap<String, ServiceCredentials> = HashMap::default();
 		match vault.ListAllKeysAtKVPath("gatekeeper", Some("ns-certs")).await {
 			Ok(keys) => {
 				if let Some(knownCerts) = keys {
@@ -109,7 +115,10 @@ impl CertManagerSvc {
 							match vault.ReadValueFromKV(format!("ns-certs/{}", key.as_str().unwrap()).as_str(), "gatekeeper").await {
 								Ok(c) => {
 									let cert: NSCertificate = serde_json::from_value(c).unwrap();
-									nsCertCache.insert(cert.namespace.clone(), cert);
+									certStatusReg
+										.Add(RegisteredCertificate { issuedFor: cert.namespace.clone(), certType: CertificateType::Namespace })
+										.await;
+									nsCertCache.insert(key.to_string(), cert);
 								}
 								Err(e) => {
 									return Err(e);
@@ -124,7 +133,39 @@ impl CertManagerSvc {
 				return Err(e);
 			}
 		}
-		let (certUpdateChannel, recv) = channel((Certificate::default(), "".to_string()));
+		match vault.ListAllKeysAtKVPath("gatekeeper-credentials", None).await {
+			Ok(keys) => {
+				if let Some(knownCerts) = keys {
+					let keysList = knownCerts.as_array();
+					if let Some(keys) = keysList {
+						for key in keys {
+							match vault.ReadValueFromKV(key.as_str().unwrap(), "gatekeeper-credentials").await {
+								Ok(c) => {
+									debug!("{}", key.as_str().unwrap());
+									let cert: ServiceCredentials = serde_json::from_value(c).unwrap();
+									certStatusReg
+										.Add(RegisteredCertificate { issuedFor: key.as_str().unwrap().to_string(), certType: CertificateType::Endpoint })
+										.await;
+									svcCertCache.insert(key.as_str().unwrap().to_string(), cert);
+								}
+								Err(e) => {
+									error!("{e}");
+									return Err(e);
+								}
+							}
+						}
+					}
+				} else {
+					debug!("no knownCerts");
+				}
+			}
+			Err(e) => {
+				error!("checkCredentialCertss: {e}");
+				return Err(e);
+			}
+		}
+
+		let (certUpdateChannel, recv) = channel((ServiceCredentials::default(), "".to_string()));
 		let cmSvc = Arc::new(Self {
 			vault,
 			cfAPI,
@@ -132,31 +173,33 @@ impl CertManagerSvc {
 			acmeContactEmail: SYSTEM_CONFIG.acmeContactEmail.clone(),
 			nsCertCache: RwLock::new(nsCertCache),
 			certUpdateChannel,
+			certStatusReg,
+			svcCertCache: RwLock::new(svcCertCache),
 		});
 		cmSvc.startExpireChecker(SYSTEM_CONFIG.certCheckInterval.unwrap_or(3600).into());
 		Ok((cmSvc, recv))
 	}
-	pub async fn GenerateServiceCert(&self, serviceName: &String, saveToVault: bool) -> Result<Certificate, String> {
+	pub async fn GenerateServiceCert(&self, serviceName: &String) -> Result<ServiceCredentials, String> {
 		let certResult = self.vault.GenerateServiceCert("gatekeeper", &serviceName).await;
 		match certResult {
 			Ok(cert) => {
-				let mut certToSave = cert.clone();
-				if serviceName != &"gatekeeper".to_string() && saveToVault == false {
-					certToSave.private_key = "".to_string();
-				}
-				let certJSON = serde_json::to_string(&certToSave).unwrap();
+				let certToSave = cert.clone();
+				let sc: ServiceCredentials = certToSave.into();
 
-				if saveToVault {
-					let newCreds = format!("base64:{}", engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).encode(&certJSON));
-					self.vault.WriteValueToKV(&serviceName.as_str(), "credentials", newCreds.as_str(), "gatekeeper-credentials").await?;
-					Ok(cert)
-				} else {
-					let er = self.vault.Encrypt("platform", certJSON.as_str()).await?;
-					match std::fs::write(format!("certs/svcs/{}.cert", serviceName), er.ciphertext) {
-						Ok(_) => Ok(cert),
-						Err(e) => Err(e.to_string()),
+				let mut certCache = self.svcCertCache.write().await;
+				if certCache.contains_key(serviceName) {
+					if let Some(existing) = certCache.get_mut(serviceName) {
+						*existing = sc.clone();
+						drop(certCache);
 					}
+				} else {
+					certCache.insert(serviceName.clone(), sc.clone());
+					drop(certCache);
 				}
+
+				self.vault.WriteStructToKV(&serviceName.as_str(), "gatekeeper-credentials", &sc).await?;
+
+				Ok(sc)
 			}
 			Err(e) => Err(e),
 		}
@@ -250,6 +293,11 @@ impl CertManagerSvc {
 					if let Some(existing) = certCache.get_mut(namespace) {
 						*existing = newCert;
 					}
+				} else {
+					certCache.insert(namespace.to_string(), newCert);
+					self.certStatusReg
+						.Add(RegisteredCertificate { issuedFor: namespace.to_string(), certType: CertificateType::Endpoint })
+						.await;
 				}
 				drop(certCache);
 
@@ -271,48 +319,22 @@ impl CertManagerSvc {
 		let certs = self.nsCertCache.read().await;
 		certs.len() == 0
 	}
-	pub async fn GetExistingServiceCert(&self, serviceName: String, fromVault: bool) -> Result<Certificate, String> {
-		if fromVault {
-			match self.vault.ReadValueFromKV(&serviceName.as_str(), "gatekeeper-credentials").await {
-				Ok(c) => {
-					let value = c.as_object().unwrap();
-					let mut credsStr = value["credentials"].as_str().unwrap();
-					credsStr = credsStr.strip_prefix("base64:").unwrap();
-					match engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD).decode(credsStr) {
-						Ok(v) => {
-							return Ok::<Certificate, String>(serde_json::from_slice(&v).unwrap());
-						}
-						Err(e) => {
-							error!("GetExistingServiceCert: {:?}", e);
-							return Err(e.to_string());
-						}
-					}
-				}
-				Err(_) => todo!(),
-			}
-		} else {
-			let certPathStr = format!("certs/svcs/{}.cert", serviceName);
-			let certPath = Path::new(certPathStr.as_str());
-			if certPath.exists() {
-				let cert_file = std::fs::read_to_string(certPath);
-				match cert_file {
-					Ok(file) => match self.vault.Decrypt("platform", file.as_str()).await {
-						Ok(r) => {
-							let key_decoded = engine::GeneralPurpose::new(&alphabet::STANDARD, general_purpose::PAD).decode(r.plaintext).unwrap();
-							Ok::<Certificate, String>(serde_json::from_slice(&key_decoded).unwrap())
-						}
-						Err(e) => Err(e),
-					},
-					Err(e) => panic!("{:?}", e),
-				}
-			} else {
-				Err(format!("cert for service {} does not exist", serviceName))
-			}
-		}
+	pub async fn GetExistingServiceCert(&self, serviceName: String) -> Option<ServiceCredentials> {
+		let certs = self.svcCertCache.read().await;
+		let c = certs.get(&serviceName).cloned();
+		drop(certs);
+		
+		c
+	}
+	pub fn GetExistingServiceCertBlocking(&self, serviceName: String) -> Option<ServiceCredentials> {
+		tokio::task::block_in_place(move || Handle::current().block_on(async move {
+			debug!("get creds...");
+			self.GetExistingServiceCert(serviceName).await
+		}))
 	}
 	pub async fn SignWithGatekeeperCert(&self, toSign: String) -> Result<String, String> {
-		match self.GetExistingServiceCert("gatekeeper".to_string(), false).await {
-			Ok(c) => {
+		match self.GetExistingServiceCert("gatekeeper".to_string()).await {
+			Some(c) => {
 				let key = SecretKey::from_sec1_pem(&c.private_key.as_str()).unwrap();
 				let sk = SigningKey::from(key);
 
@@ -321,7 +343,7 @@ impl CertManagerSvc {
 					Err(e) => Err(e.to_string()),
 				}
 			}
-			Err(e) => Err(e),
+			None => Err("couldn't retrieve gatekeeper cert".to_string()),
 		}
 	}
 	pub async fn VerifySignature(&self, serviceName: String, message: &String, msgSig: &String) -> Result<bool, String> {
@@ -329,8 +351,8 @@ impl CertManagerSvc {
 			return Err("one or more invalid arguments provided".to_string());
 		}
 
-		match self.GetExistingServiceCert(serviceName, false).await {
-			Ok(c) => match parse_x509_pem(c.certificate.as_bytes()) {
+		match self.GetExistingServiceCert(serviceName).await {
+			Some(c) => match parse_x509_pem(c.certificate.as_bytes()) {
 				Ok(cert) => match cert.1.parse_x509() {
 					Ok(parsed) => {
 						let sigDecoded = engine::GeneralPurpose::new(&alphabet::STANDARD, general_purpose::PAD).decode(msgSig.clone()).unwrap();
@@ -349,13 +371,13 @@ impl CertManagerSvc {
 				},
 				Err(e) => Err(format!("Pem error: {}", e.to_string())),
 			},
-			Err(e) => Err(format!("GetExistingServiceCert error: {e}")),
+			None => Err(format!("GetExistingServiceCert error: couldn't retrieve cert")),
 		}
 	}
-	pub async fn IsCertificateExpired(&self, serviceName: &String, fromVault: bool) -> Result<bool, String> {
-		match self.GetExistingServiceCert(serviceName.clone(), fromVault).await {
-			Ok(c) => {
-				let certExpireTime: i64 = c.expiration.unwrap_or_default().try_into().unwrap_or(0);
+	pub async fn IsCertificateExpired(&self, serviceName: &String) -> Result<bool, String> {
+		match self.GetExistingServiceCert(serviceName.clone()).await {
+			Some(c) => {
+				let certExpireTime: i64 = c.expires_at.try_into().unwrap_or(0);
 				let mut currentTime = Utc::now();
 
 				debug!("service name: {serviceName}");
@@ -369,12 +391,12 @@ impl CertManagerSvc {
 
 				Ok(false)
 			}
-			Err(e) => Err(e),
+			None => Err(format!("GetExistingServiceCert error: couldn't retrieve cert")),
 		}
 	}
 	pub async fn RevokeServiceCert(&self, serviceName: &String) -> Result<(), String> {
-		match self.GetExistingServiceCert(serviceName.clone(), true).await {
-			Ok(cert) => {
+		match self.GetExistingServiceCert(serviceName.clone()).await {
+			Some(cert) => {
 				if cert.private_key == "".to_string() {
 					warn!("this operation will fail without a private key");
 				}
@@ -383,6 +405,10 @@ impl CertManagerSvc {
 				if revokeResult.is_ok() {
 					let delResult = self.vault.DeleteKVPair(&serviceName, "gatekeeper-credentials").await;
 					if delResult.is_ok() {
+						let mut certs = self.svcCertCache.write().await;
+						certs.remove(serviceName);
+						drop(certs);
+						self.certStatusReg.Remove(serviceName).await;
 						return Ok(());
 					} else {
 						return Err(delResult.unwrap_err());
@@ -391,7 +417,7 @@ impl CertManagerSvc {
 					Err(revokeResult.unwrap_err())
 				}
 			}
-			Err(e) => Err(e),
+			None => Err(format!("GetExistingServiceCert error: couldn't retrieve cert")),
 		}
 	}
 	pub async fn RevokeNSCert(&self, nsID: &String) -> Result<(), String> {
@@ -405,7 +431,11 @@ impl CertManagerSvc {
 
 						match acc.revoke(&RevocationRequest { certificate: &derCert, reason: Some(RevocationReason::CessationOfOperation) }).await {
 							Ok(()) => match self.vault.DeleteKVPair(format!("ns-certs/{nsID}").as_str(), "gatekeeper").await {
-								Ok(()) => return Ok(()),
+								Ok(()) => {
+									let mut certs = self.nsCertCache.write().await;
+									certs.remove(nsID);
+									return Ok(());
+								}
 								Err(e) => return Err(e),
 							},
 							Err(e) => {
@@ -512,13 +542,12 @@ impl CertManagerSvc {
 impl ExpirationChecker {
 	pub fn Start(self: &Arc<Self>, checkIntervalSecs: u64) {
 		let self_clone = Arc::clone(self);
-
 		tokio::spawn(async move {
 			loop {
+				info!("starting expiry check. Running every {} minutes", checkIntervalSecs / 60);
 				if !self_clone.cmSvc.IsCertCacheEmpty().await {
-					info!("starting expiry check. Running every {} minutes", checkIntervalSecs / 60);
-					self_clone.checkCredentialCerts().await;
 					self_clone.checkNSCerts().await;
+					self_clone.checkCredentialCerts().await;
 					info!("Ok, sleep time. Hey google set an alarm for {} minutes", checkIntervalSecs / 60);
 				} else {
 					warn!("cert cache empty");
@@ -528,36 +557,32 @@ impl ExpirationChecker {
 		});
 	}
 	async fn checkCredentialCerts(self: &Arc<Self>) {
-		match self.cmSvc.vault.ListAllKeysAtKVPath("gatekeeper-credentials", None).await {
-			Ok(keys) => {
-				let mut name: String;
-				if let Some(keysList) = keys {
-					let keysList = keysList.as_array();
-					if let Some(svcNames) = keysList {
-						info!("checking for expired credentials...");
-						for v in svcNames {
-							name = v.as_str().unwrap().to_string();
-							let wellIsIt = self.cmSvc.IsCertificateExpired(&name, true).await;
-							if wellIsIt.is_ok() {
-								if wellIsIt.unwrap() == true {
-									debug!("generate new cert for {name}");
-									match self.cmSvc.GenerateServiceCert(&name, true).await {
-										Ok(newCert) => {
-											self.cmSvc.certUpdateChannel.send_replace((newCert, name.clone()));
-										}
-										Err(e) => error!("{e}"), //TODO: Notify monitor of generation failure.
-									}
-								}
-							} else {
-								error!("checkCredentialCerts: {}", wellIsIt.unwrap_err());
+		let svcCerts = self.cmSvc.svcCertCache.read().await;
+		let svcCertsList = svcCerts.clone();
+		drop(svcCerts);
+		for svcc in svcCertsList.iter() {
+			match self.cmSvc.IsCertificateExpired(&svcc.0).await {
+				Ok(wellIsIt) => {
+					if wellIsIt {
+						debug!("generate new cert for {}", &svcc.0);
+						match self.cmSvc.GenerateServiceCert(&svcc.0).await {
+							Ok(newCert) => {
+								self.cmSvc.certUpdateChannel.send_replace((newCert, svcc.0.clone()));
+							}
+							Err(e) => {
+								self.cmSvc
+									.certStatusReg
+									.SetStatus(
+										CertUpdateResult { status: UpdateStatus::Failed { failureType: FailureType::Generation, reason: e }, timestamp: Utc::now().timestamp() },
+										&svcc.0,
+									)
+									.await;
 							}
 						}
-					} else {
-						debug!("no services configured")
 					}
 				}
+				Err(e) => error!("checkCredentialCerts: {e}"),
 			}
-			Err(e) => error!("checkCredentialCerts: {e}"),
 		}
 	}
 	async fn checkNSCerts(self: &Arc<Self>) {
@@ -565,38 +590,39 @@ impl ExpirationChecker {
 		for nsc in nsCerts.iter() {
 			let expireTime = nsc.1.notAfter;
 			let mut currentTime = Utc::now();
+			debug!("namespace: {}", nsc.0);
 			for _ in 1..6 {
 				currentTime = currentTime.checked_add_days(chrono::Days::new(1)).unwrap();
+				debug!("current time: {}, certExpireTime: {expireTime}", currentTime.timestamp());
 				if currentTime.timestamp() >= expireTime {
 					let certDer: Vec<CertificateDer<'static>> = CertificateDer::pem_slice_iter(nsc.1.certChain.as_bytes()).map(|result| result.unwrap()).collect();
 					let certID = CertificateIdentifier::try_from(certDer.first().unwrap());
 					if certID.is_ok() {
 						match self.cmSvc.GenerateACMECert(&nsc.1.namespace, &nsc.0, Some(certID.unwrap())).await {
-							Ok(success) => {
-								event!(
-									target: "cert_monitor",
-									Level::INFO,
-									certType = "namespace",
-									issuedFor = &nsc.1.namespace,
-									timestamp = currentTime.timestamp(),
-									success = success
-								);
+							Ok(_) => {
+								self.cmSvc
+									.certStatusReg
+									.SetStatus(CertUpdateResult { status: UpdateStatus::Success, timestamp: currentTime.timestamp() /*  */ }, &nsc.1.namespace)
+									.await;
 							}
 							Err(e) => {
-								event!(
-									target: "cert_monitor",
-									Level::ERROR,
-									certType = "namespace",
-									issuedFor = &nsc.1.namespace,
-									timestamp = currentTime.timestamp(),
-									success = false,
-									reason = e
-								);
+								self.cmSvc
+									.certStatusReg
+									.SetStatus(
+										CertUpdateResult { status: UpdateStatus::Failed { failureType: FailureType::Generation, reason: e }, timestamp: currentTime.timestamp() },
+										&nsc.1.namespace,
+									)
+									.await;
 							}
 						}
 					}
 				}
 			}
 		}
+	}
+}
+impl std::fmt::Debug for CertManagerSvc {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "nothing to see here")
 	}
 }

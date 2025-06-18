@@ -23,6 +23,21 @@ pub mod pki;
 
 const ERROR_PAGE: &'static str = include_str!("assets/error_page.html");
 
+pub trait RemoveElem<T> {
+	fn remove_elem<F>(&mut self, predicate: F) -> Option<T>
+	where
+		F: Fn(&T) -> bool;
+}
+
+impl<T> RemoveElem<T> for Vec<T> {
+	fn remove_elem<F>(&mut self, predicate: F) -> Option<T>
+	where
+		F: Fn(&T) -> bool,
+	{
+		self.iter().position(predicate).map(|index| self.remove(index))
+	}
+}
+
 pub static SYSTEM_CONFIG: Lazy<SystemConfiguration> = Lazy::new(|| {
     let conf_file = std::fs::read_to_string("gatekeeper_config");
 	match conf_file {

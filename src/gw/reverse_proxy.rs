@@ -40,8 +40,9 @@ pub struct RequestContext {
 	service: String,
 	grpcService: String,
 	isGRPCService: bool,
-	redirectDeviceAuthAttempt: bool,
 	redirectToStaticServer: bool,
+	redirectDeviceAuthAttempt: bool,
+	redirectToCertStatusServer: bool,
 	currentPeer: Option<SocketAddr>,
 	isHTTPToRPCRequest: bool,
 	grpcMethodToCall: Option<String>,
@@ -53,16 +54,17 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 	type CTX = RequestContext;
 	fn new_ctx(&self) -> Self::CTX {
 		RequestContext {
-			base: String::new(),
-			service: String::new(),
 			currentPeer: None,
-			redirectToStaticServer: false,
+			base: String::new(),
 			isGRPCService: false,
-			grpcService: String::new(),
-			redirectDeviceAuthAttempt: false,
-			isHTTPToRPCRequest: false,
+			service: String::new(),
 			grpcMethodToCall: None,
 			authority: String::new(),
+			isHTTPToRPCRequest: false,
+			grpcService: String::new(),
+			redirectToStaticServer: false,
+			redirectDeviceAuthAttempt: false,
+			redirectToCertStatusServer: false,
 		}
 	}
 
@@ -95,7 +97,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 		let hostParts: Vec<&str> = host.splitn(2, ".").collect();
 		let base = hostParts[1].to_string();
 
-		if self.epMgr.IsValidDomain(&base) {
+		if self.epMgr.IsValidDomain(&base).await {
 			if self.epMgr.IsRPCGatewayEnabled(&hostParts[0].to_string()) && uri.path().starts_with("/rpc") {
 				let grpcTranscode = session.downstream_modules_ctx.get_mut::<GRPCTranscoder>().expect("grpc-transcode module added");
 				grpcTranscode.init(urlParts[2].to_string(), urlParts[3].to_string());
@@ -152,6 +154,11 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 		ctx.base = base.clone();
 		ctx.service = hostParts[0].to_string();
 
+		if ctx.service == "gatekeeper".to_string() {
+			ctx.redirectToCertStatusServer = true;
+			return Ok(false);
+		}
+
 		if ctx.isGRPCService {
 			ctx.grpcService = uri.path().split("/").collect::<Vec<&str>>()[1].to_string();
 		}
@@ -193,7 +200,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 			}
 		}
 
-		if self.epMgr.IsValidDomain(&base) {
+		if self.epMgr.IsValidDomain(&base).await {
 			let (valid, aliasedService) = self.epMgr.IsValidService(&hostParts[0].to_string());
 			if valid {
 				if aliasedService != "" {
@@ -271,6 +278,12 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 			return Ok(peer);
 		}
 
+		if ctx.redirectToCertStatusServer {
+			debug!("forward to CertStatus service");
+			let peer = Box::new(HttpPeer::new(self.certStatusServerAddr.clone(), false, "".to_string()));
+			return Ok(peer);
+		}
+
 		if ctx.isGRPCService {
 			svcNameForLookup = ctx.grpcService.clone();
 		} else {
@@ -284,13 +297,14 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 			debug!("serving gRPC request {:?}", serviceEP);
 			ctx.currentPeer = Some(serviceEP);
 			if ctx.isGRPCService {
-				let caChain = self.grpcCert.ca_chain.as_ref().unwrap();
+				let grpcCert = self.cmSvc.GetExistingServiceCert("gatekeeper".to_string()).await.unwrap();
+				let caChain: Vec<String> = grpcCert.ca_cert.clone().split_inclusive("-----END CERTIFICATE-----").map(|s| s.to_string()).collect();
 
-				let cert = X509::from_pem(&Bytes::from(self.grpcCert.certificate.clone())).unwrap();
+				let cert = X509::from_pem(&Bytes::from(grpcCert.certificate.clone())).unwrap();
 				let caInt = X509::from_pem(&Bytes::from(caChain[0].clone())).unwrap();
 				let caRoot = X509::from_pem(&Bytes::from(caChain[1].clone())).unwrap();
 
-				let key = PKey::private_key_from_pem(&Bytes::from(self.grpcCert.private_key.clone())).unwrap();
+				let key = PKey::private_key_from_pem(&Bytes::from(grpcCert.private_key.clone())).unwrap();
 				let mut peer = HttpPeer::new(serviceEP, true, ctx.service.clone());
 				let mut peerOpts = PeerOptions::new();
 

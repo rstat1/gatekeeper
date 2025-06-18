@@ -19,6 +19,7 @@ message Namespace {
     repeated string domainSecurityPolicies = 3;
     bool gatekeeperManagedCerts = 4;
     string id = 5;
+    int64 certExpiryTime = 6;
 }    
 message Service {
     string name = 1;
@@ -36,16 +37,14 @@ message ServiceCredentials {
     uint64 expiresAt = 3;
     string issuerCert = 4;
     string private_key = 5;
+    optional string id = 6;
 }
 
 message NewServiceRequest {
     Service svcDetails = 1;
     string parentNamespace = 2;
 }
-message NewServiceResponse {
-    string id = 1;
-    ServiceCredentials cert = 2;
-}    
+
 message NewNamespaceRequest {
     Namespace domain = 1;
 }    
@@ -59,7 +58,7 @@ message AliasRequest {
 }
 
 service ConfigService {
-    rpc NewService(NewServiceRequest) returns (NewServiceResponse);
+    rpc NewService(NewServiceRequest) returns (ServiceCredentials);
     rpc NewNamespace(NewNamespaceRequest) returns (ID);
     rpc NewRouteAlias(AliasRequest) returns (gatekeeper.services.types.Empty);
 
@@ -71,5 +70,5 @@ service ConfigService {
     rpc DeleteNamespace(ID) returns (gatekeeper.services.types.Empty);
     rpc DeleteService(ID) returns (gatekeeper.services.types.Empty);
 
-    rpc RequestCertRenewal(ID) returns (NewServiceResponse);
+    rpc RequestCertRenewal(ID) returns (ServiceCredentials);
 }

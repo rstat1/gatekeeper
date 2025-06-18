@@ -17,10 +17,7 @@ use tracing::{debug, error, info};
 
 use crate::{
 	pki::CertManagerSvc,
-	services::
-		endpoint_manager::EndpointManagerImpl
-	,
-	vault::{Certificate},
+	services::{endpoint_manager::EndpointManagerImpl, v1::ServiceCredentials},
 };
 
 const DEVICE_API_CONTENT_TYPE: &str = "application/x-gatekeeper-device-api";
@@ -32,16 +29,23 @@ pub struct DynamicCert {
 	cmSvc: Arc<CertManagerSvc>,
 }
 pub struct ReverseProxy {
-	grpcCert: Certificate,
+	cmSvc: Arc<CertManagerSvc>,
 	staticFileServerAddr: String,
 	deviceAuthServerAddr: String,
+	certStatusServerAddr: String,
 	epMgr: Arc<EndpointManagerImpl>,
 }
 
 impl ReverseProxy {
-	pub fn new(epMgr: Arc<EndpointManagerImpl>, staticFileServerAddr: &String, gkCert: &Certificate, deviceAuthServerAddr: &String) -> Self {
+	pub fn new(epMgr: Arc<EndpointManagerImpl>, cmSvc: Arc<CertManagerSvc>, staticFileServerAddr: &String, deviceAuthServerAddr: &String, certStatusServerAddr: &String) -> Self {
 		info!("gw init");
-		ReverseProxy { epMgr, staticFileServerAddr: staticFileServerAddr.clone(), grpcCert: gkCert.clone(), deviceAuthServerAddr: deviceAuthServerAddr.clone() }
+		ReverseProxy {
+			epMgr,
+			cmSvc: cmSvc.clone(),
+			staticFileServerAddr: staticFileServerAddr.clone(),
+			deviceAuthServerAddr: deviceAuthServerAddr.clone(),
+			certStatusServerAddr: certStatusServerAddr.clone(),
+		}
 	}
 }
 

@@ -27,7 +27,7 @@ func main() {
 	gkc := sdk.NewGatekeeperClient(sdk.GatekeeperClientConfig{
 		EndpointServicesPort:        17002,
 		GatekeeperAPIAddress:        "gatekeeper-dev.alargerobot.dev:2000",
-		ClientIsRunningOnKubernetes: true,
+		ClientIsRunningOnKubernetes: false,
 		CredentialsRenewedHandler: func() {
 			common.LogInfo("", "", "this is where credential renewal would be handled, when not running in a k8s cluster.")
 		},

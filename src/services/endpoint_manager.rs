@@ -7,8 +7,9 @@
 
 use crate::{
 	data::{self},
+	pki::{status_api::*, CertManagerSvc},
 	services::v1::{Namespace, Service, ServiceCredentials},
-	vault::Certificate as VaultCertificate,
+	RemoveElem, SYSTEM_CONFIG,
 };
 use bytes::Bytes;
 use chrono::Utc;
@@ -30,17 +31,11 @@ use std::{
 	sync::Arc,
 	time::Duration,
 };
-use tokio::sync::{watch::Receiver, Mutex};
+use tokio::sync::{watch::Receiver, Mutex, RwLock};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use super::v1::NewServiceEndpoint;
-
-pub trait RemoveElem<T> {
-	fn remove_elem<F>(&mut self, predicate: F) -> Option<T>
-	where
-		F: Fn(&T) -> bool;
-}
 
 struct HealthChecker {
 	client: Arc<EndpointManagerImpl>,
@@ -59,14 +54,15 @@ struct RegisteredEndpoint {
 	pub epID: Option<String>,
 	pub runningOnK8S: bool,
 }
-
+#[derive(Debug)]
 pub struct EndpointManagerImpl {
-	domains: Vec<Namespace>,
-	gkCert: Arc<VaultCertificate>,
+	cmSvc: Arc<CertManagerSvc>,
+	domains: RwLock<Vec<Namespace>>,
 	svcsList: Mutex<Vec<Service>>,
 	aliasToSvc: HashMap<String, String>,
-	pub certUpdateChan: Receiver<(VaultCertificate, String)>,
+	certStatusRegistry: Arc<CertStatusRegistry>,
 	epMap: Mutex<HashMap<String, Vec<RegisteredEndpoint>>>,
+	pub certUpdateChan: Receiver<(ServiceCredentials, String)>,
 }
 
 impl Display for RegisteredEndpoint {
@@ -98,18 +94,9 @@ impl Default for RegisteredEndpoint {
 	}
 }
 
-impl<T> RemoveElem<T> for Vec<T> {
-	fn remove_elem<F>(&mut self, predicate: F) -> Option<T>
-	where
-		F: Fn(&T) -> bool,
-	{
-		self.iter().position(predicate).map(|index| self.remove(index))
-	}
-}
-
 impl EndpointManagerImpl {
 	pub async fn new(
-		data: Arc<data::DataStore>, svcsList: Vec<Service>, healthPingInterval: Option<u64>, gkCert: Arc<VaultCertificate>, certUpdateChan: Receiver<(VaultCertificate, String)>,
+		data: Arc<data::DataStore>, svcsList: Vec<Service>, cmSvc: Arc<CertManagerSvc>, certUpdateChan: Receiver<(ServiceCredentials, String)>, certStatusRegistry: Arc<CertStatusRegistry>,
 	) -> Result<Arc<Self>, String> {
 		let mut aliasToSvc: HashMap<String, String> = HashMap::default();
 		match data.GetNamespaces().await {
@@ -120,8 +107,16 @@ impl EndpointManagerImpl {
 					}
 				}
 
-				let epmgr = Arc::new(EndpointManagerImpl { svcsList: Mutex::new(svcsList), domains: Vec::from(d), epMap: Mutex::new(HashMap::new()), gkCert, aliasToSvc, certUpdateChan });
-				epmgr.startHealthCheck(healthPingInterval.unwrap_or(300));
+				let epmgr = Arc::new(EndpointManagerImpl {
+					svcsList: Mutex::new(svcsList),
+					domains: RwLock::new(Vec::from(d)),
+					epMap: Mutex::new(HashMap::new()),
+					cmSvc,
+					aliasToSvc,
+					certUpdateChan,
+					certStatusRegistry,
+				});
+				epmgr.startHealthCheck(SYSTEM_CONFIG.healthCheckInterval.unwrap_or(300));
 				epmgr.startCertUpdateListener();
 				Ok(epmgr)
 			}
@@ -129,14 +124,14 @@ impl EndpointManagerImpl {
 		}
 	}
 
-	pub fn IsValidDomain(&self, domain: &String) -> bool {
-		for d in &self.domains {
-			if d.base == *domain {
-				return true;
-			}
+	pub async fn IsValidDomain(&self, domain: &String) -> bool {
+		let domainList = self.domains.read().await;
+		if domainList.iter().any(|ns| ns.base == *domain) {
+			true
+		} else {
+			warn!("didn't find a valid namespace for {}", domain);
+			false
 		}
-		warn!("didn't find a valid Domain for {}", domain);
-		false
 	}
 
 	pub fn IsValidService(&self, svcName: &String) -> (bool, String) {
@@ -154,13 +149,35 @@ impl EndpointManagerImpl {
 			Err(_) => (false, "".to_string()),
 		}
 	}
-
+	pub async fn NSIDToname(&self, id: &String) -> String {
+		let domainList = self.domains.read().await;
+		if let Some(name) = domainList.iter().find(|s| *s.id == *id) {
+			name.base.clone()
+		} else {
+			warn!("didn't find a valid namespace for {}", id);
+			"".to_string()
+		}
+	}
 	pub fn ServiceIdToName(&self, id: &String) -> Result<String, bool> {
 		let svcs = self.svcsList.try_lock();
 		match svcs {
 			Ok(svcList) => {
 				if let Some(service) = svcList.iter().find(|s| *s.id == *id) {
 					Ok(service.name.clone())
+				} else {
+					Err(false)
+				}
+			}
+			Err(_) => Err(false),
+		}
+	}
+
+	pub fn ServiceNameToID(&self, name: &String) -> Result<String, bool> {
+		let svcs = self.svcsList.try_lock();
+		match svcs {
+			Ok(svcList) => {
+				if let Some(service) = svcList.iter().find(|s| *s.name == *name) {
+					Ok(service.id.clone())
 				} else {
 					Err(false)
 				}
@@ -350,19 +367,32 @@ impl EndpointManagerImpl {
 			Err(e) => error!("AddServiceToKnownList TLE: {:?}", e),
 		}
 	}
+	pub async fn RemoveNamesapce(&self, id: String) {
+		let mut domainList = self.domains.write().await;
+		domainList.remove_elem(|ns| ns.id == id);
+	}
+	pub fn RemoveService(&self, name: String) {
+		let svcs = self.svcsList.try_lock();
+		match svcs {
+			Ok(mut svcList) => {
+				svcList.remove_elem(|s| s.name == name);
+			}
+			Err(_) => {}
+		}
+	}
 	fn startHealthCheck(self: &Arc<Self>, ttl: u64) {
 		let hc = Arc::new(HealthChecker { client: Arc::clone(&self) });
-		hc.StartHealthCheck(ttl, self.gkCert.clone());
+		hc.StartHealthCheck(ttl);
 	}
 	fn startCertUpdateListener(self: &Arc<Self>) {
 		let hc = Arc::new(CertChecker { client: Arc::clone(&self) });
-		hc.StartCertCheck(self.gkCert.clone());
+		hc.StartCertCheck();
 	}
 }
 impl CertChecker {
-	pub fn StartCertCheck(self: &Arc<Self>, gkCert: Arc<VaultCertificate>) {
+	pub fn StartCertCheck(self: &Arc<Self>) {
 		let self_clone = Arc::clone(self);
-		let mut cert_chan: Receiver<(VaultCertificate, String)> = self_clone.client.certUpdateChan.clone();
+		let mut cert_chan: Receiver<(ServiceCredentials, String)> = self_clone.client.certUpdateChan.clone();
 		tokio::spawn(async move {
 			loop {
 				if cert_chan.changed().await.is_ok() {
@@ -373,21 +403,10 @@ impl CertChecker {
 								for rep in eps {
 									if rep.runningOnK8S == false {
 										debug!("got cert update for {}", &newCert.1);
-										let ca_chain = newCert.0.ca_chain.clone().unwrap();
-										let x = ca_chain.iter().fold(String::new(), |acc, i| acc + "\n" + i);
-										self_clone
-											.SendNewCredsToEP(
-												rep,
-												&ServiceCredentials {
-													ca_cert: x,
-													certificate: newCert.0.certificate.clone(),
-													expires_at: newCert.0.expiration.unwrap_or(3600),
-													issuer_cert: newCert.0.issuing_ca.clone(),
-													private_key: newCert.0.private_key.clone(),
-												},
-												gkCert.clone(),
-											)
-											.await;
+										let repName = rep.serviceName.clone();
+										let mut sc: ServiceCredentials = newCert.0.clone().into();
+										sc.id = Some(self_clone.client.ServiceNameToID(&repName).unwrap());
+										self_clone.SendNewCredsToEP(rep, &sc).await;
 									}
 								}
 							}
@@ -398,8 +417,9 @@ impl CertChecker {
 			}
 		});
 	}
-	async fn SendNewCredsToEP(self: &Arc<Self>, rep: RegisteredEndpoint, newCreds: &ServiceCredentials, gkCert: Arc<VaultCertificate>) {
-		let caChain = gkCert.ca_chain.as_ref().unwrap();
+	async fn SendNewCredsToEP(self: &Arc<Self>, rep: RegisteredEndpoint, newCreds: &ServiceCredentials) {
+		let gkCert = self.client.cmSvc.GetExistingServiceCert("gatekeeper".to_string()).await.unwrap();
+		let caChain: Vec<String> = gkCert.ca_cert.clone().split_inclusive("-----END CERTIFICATE-----").map(|s| s.to_string()).collect();
 		let cert = X509::from_pem(&Bytes::from(gkCert.certificate.clone())).unwrap();
 		let caInt = X509::from_pem(&Bytes::from(caChain[0].clone())).unwrap();
 		let caRoot = X509::from_pem(&Bytes::from(caChain[1].clone())).unwrap();
@@ -438,9 +458,18 @@ impl CertChecker {
 				while let Some(chunk) = http.read_body_ref().await.unwrap() {
 					response_body.push_str(&String::from_utf8_lossy(&chunk));
 					if response_body == "ok" {
-						
+						self.client
+							.certStatusRegistry
+							.SetStatus(CertUpdateResult { timestamp: Utc::now().timestamp(), status: UpdateStatus::Success }, &rep.serviceName)
+							.await;
 					} else {
-						
+						self.client
+							.certStatusRegistry
+							.SetStatus(
+								CertUpdateResult { status: UpdateStatus::Failed { failureType: FailureType::Propagation, reason: response_body.clone() }, timestamp: Utc::now().timestamp() },
+								&rep.serviceName,
+							)
+							.await;
 					}
 				}
 			}
@@ -449,10 +478,11 @@ impl CertChecker {
 	}
 }
 impl HealthChecker {
-	pub fn StartHealthCheck(self: &Arc<Self>, healthCheckInterval: u64, gkCert: Arc<VaultCertificate>) {
+	pub fn StartHealthCheck(self: &Arc<Self>, healthCheckInterval: u64) {
 		let self_clone = Arc::clone(self);
 		tokio::spawn(async move {
-			let caChain = gkCert.ca_chain.as_ref().unwrap();
+			let gkCert = self_clone.client.cmSvc.GetExistingServiceCert("gatekeeper".to_string()).await.unwrap();
+			let caChain: Vec<String> = gkCert.ca_cert.clone().split_inclusive("-----END CERTIFICATE-----").map(|s| s.to_string()).collect();
 
 			let cert = X509::from_pem(&Bytes::from(gkCert.certificate.clone())).unwrap();
 			let caInt = X509::from_pem(&Bytes::from(caChain[0].clone())).unwrap();

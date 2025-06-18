@@ -19,7 +19,7 @@ use std::{collections::HashMap, env, sync::Arc};
 use tokio::time::Duration;
 use tracing::{error, info, warn};
 
-use crate::SYSTEM_CONFIG;
+use crate::{services::v1::ServiceCredentials, SYSTEM_CONFIG};
 
 #[derive(Builder, Endpoint, Default)]
 #[endpoint(path = "/v1/{self.mount}/data/{self.path}", method = "POST", builder = "true")]
@@ -93,7 +93,7 @@ struct CreateDBCredsRequest {
 }
 
 #[derive(Builder, Debug, Default, Endpoint)]
-#[endpoint(path = "/v1/{self.mount}/issuer/default/issue/{self.role}", method = "POST", response = "Certificate", builder = "true")]
+#[endpoint(path = "/v1/{self.mount}/issue/{self.role}", method = "POST", response = "Certificate", builder = "true")]
 #[builder(setter(into, strip_option), default)]
 pub struct GenerateCertRequest {
 	#[endpoint(skip)]
@@ -296,6 +296,15 @@ pub struct VaultClient {
 
 impl<T: DeserializeOwned + Send + Sync> rustify::endpoint::Wrapper for VaultResult<T> {
 	type Value = T;
+}
+
+impl Into<ServiceCredentials> for Certificate {
+	fn into(self) -> ServiceCredentials {
+		let ca_chain = self.ca_chain.unwrap();
+		let ca_cert = ca_chain.iter().fold(String::new(), |acc, i| acc + "\n" + i);
+
+		ServiceCredentials { ca_cert, certificate: self.certificate, expires_at: self.expiration.unwrap_or(86400), issuer_cert: self.issuing_ca, private_key: self.private_key, id: None }
+	}
 }
 
 impl MiddleWare for AddTokenMiddleware {
@@ -594,7 +603,7 @@ impl VaultClient {
 		if self.dev {
 			certRole = format!("{}-dev", role)
 		}
-		
+
 		let certReq = GenerateCertRequest::builder()
 			.mount(&SYSTEM_CONFIG.vaultCAName)
 			.role(certRole)

@@ -55,6 +55,7 @@ pub struct SystemConfiguration {
 	pub healthCheckInterval: Option<u64>,
 	pub staticFileServerAddr: Option<String>,
 	pub devAuthServerAddr: Option<String>,
+	pub certStatusServerAddr: Option<String>,
 	pub apiServerAddr: Option<String>,
 	pub devMode: Option<bool>,
 	pub certCheckInterval: Option<u32>,

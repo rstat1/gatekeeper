@@ -7,11 +7,9 @@
 
 use crate::{data::CacheService, SYSTEM_CONFIG};
 
-use redis::{Commands, ToRedisArgs};
+use redis::Commands;
 use serde::Serialize;
 use tracing::error;
-
-use serde_json::Value;
 
 impl CacheService {
 	pub fn new() -> Result<Self, String> {
@@ -70,7 +68,7 @@ impl CacheService {
 					Ok(_) => Ok(true),
 					Err(e) => Err(format!("AddObjectToList: {e}")),
 				}
-			},
+			}
 			Err(_) => todo!(),
 		}
 	}
