@@ -11,9 +11,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
 	cs "go.alargerobot.dev/gatekeeper/sdk/rpc/config/v1"
 	ep "go.alargerobot.dev/gatekeeper/sdk/rpc/endpoint_manager/v1"
@@ -128,24 +126,6 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 	gkc.logger.Out = os.Stderr
 	gkc.logger.SetLevel(logrus.DebugLevel)
 
-	if config.ClientIsRunningOnKubernetes {
-		gkc.credsFileWatcher()
-	} else {
-		expTime := gkCreds.Cert.ExpiresAt
-		if time.Now().UTC().AddDate(0, 0, 5).Unix() == int64(expTime) {
-			gkc.logInfo("", "", "renew credentials...")
-			gkc.renewCredentials()
-		} else if time.Now().UTC().Unix() == int64(expTime) {
-			gkc.logInfo("", "", "renew credentials...")
-			gkc.renewCredentials()
-		} else if time.Now().UTC().Unix() > int64(expTime) {
-			gkc.logInfo("", "", "renew credentials...")
-			gkc.renewCredentials()
-		}
-
-		go gkc.certRenewTimer()
-	}
-
 	return gkc
 }
 
@@ -238,54 +218,6 @@ func (gc *GatekeeperClient) logError(extraKey string, extraValue interface{}, en
 		gc.logger.WithFields(logrus.Fields{"func": name, "line": line, "originator": "gatekeeper-sdk"}).Errorln(entry)
 	}
 }
-func (gc *GatekeeperClient) credsFileWatcher() {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		gc.logger.Fatalln(err)
-	}
-	defer watcher.Close()
-	err = watcher.Add(os.Getenv("CREDENTIALS_FILE_PATH"))
-	if err != nil {
-		gc.logger.Fatalln(err)
-		return
-	}
-	go func() {
-		for {
-			select {
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return
-				}
-				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
-					gc.renewCredentials()
-				}
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					return
-				}
-				gc.logger.Fatalln(err)
-			}
-		}
-	}()
-
-}
-func (gc *GatekeeperClient) certRenewTimer() {
-	for {
-		gc.logInfo("", "", "starting credential renewal timer...")
-		<-time.Tick(24 * time.Hour)
-
-		if time.Now().UTC().AddDate(0, 0, 5).Unix() == int64(gc.credentials.Cert.ExpiresAt) {
-			gc.logInfo("", "", "renew credentials...")
-			gc.renewCredentials()
-		} else if time.Now().UTC().Unix() == int64(gc.credentials.Cert.ExpiresAt) {
-			gc.logInfo("", "", "renew credentials...")
-			gc.renewCredentials()
-		} else if time.Now().UTC().Unix() > int64(gc.credentials.Cert.ExpiresAt) {
-			gc.logInfo("", "", "renew credentials...")
-			gc.renewCredentials()
-		}
-	}
-}
 func (gc *GatekeeperClient) newCredsReceievedFromGK(credentials cs.ServiceCredentials) {
 	if gc.config.ClientIsRunningOnKubernetes {
 		err := ForceExternalSecretSync(gc.config.ServiceName)
@@ -301,37 +233,4 @@ func (gc *GatekeeperClient) newCredsReceievedFromGK(credentials cs.ServiceCreden
 	}
 	gc.credentials.Cert = &credentials
 	gc.config.CredentialsRenewedHandler()
-}
-func (gc *GatekeeperClient) renewCredentials() {
-	if path, set := os.LookupEnv("CREDENTIALS_FILE_PATH"); set {
-		creds, e := os.ReadFile(path)
-		if e != nil {
-			panic(e)
-		}
-		credsStr := string(creds)
-		creds, e = base64.StdEncoding.DecodeString(credsStr[6:])
-		if e != nil {
-			panic(e)
-		}
-		e = protojson.Unmarshal(creds, &gc.credentials)
-		if e != nil {
-			panic(e)
-		}
-		gc.logInfo("updatedAt", time.Now(), "updated Gatekeeper credentials...")
-	} else {
-		if r, e := gc.configService.RequestCertRenewal(context.Background(), &cs.ID{Id: gc.credentials.Id}); e == nil {
-			gc.credentials = *r
-			newCreds, _ := protojson.Marshal(r)
-			e = os.WriteFile("gatekeeper-credentials.json", newCreds, 0o600)
-			if e != nil {
-				panic(e)
-			}
-			gc.config.CredentialsRenewedHandler()
-			gc.logInfo("updatedAt", time.Now(), "updated Gatekeeper credentials...")
-		} else {
-			gc.logError("action", "RequestCertRenewal", e)
-		}
-
-	}
-
 }
