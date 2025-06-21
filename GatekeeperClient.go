@@ -27,7 +27,7 @@ type GatekeeperClient struct {
 	configService   cs.ConfigServiceClient
 	endpointManager ep.EndpointManagerClient
 	epsServer       *endpointServicesServer
-	credentials     cs.NewServiceResponse
+	credentials     cs.ServiceCredentials
 	logger          *logrus.Logger
 }
 
@@ -65,7 +65,7 @@ type DeviceAuthClientResponse struct {
 func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 	var e error
 	var credsFilePath string
-	var gkCreds cs.NewServiceResponse
+	var gkCreds cs.ServiceCredentials
 
 	if path, set := os.LookupEnv("CREDENTIALS_FILE_PATH"); set {
 		credsFilePath = path
@@ -91,13 +91,13 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 		panic(e)
 	}
 
-	cert, err := tls.X509KeyPair([]byte(gkCreds.Cert.Certificate), []byte(gkCreds.Cert.PrivateKey))
+	cert, err := tls.X509KeyPair([]byte(gkCreds.Certificate), []byte(gkCreds.PrivateKey))
 	if err != nil {
 		panic(err)
 	}
 
 	ca := x509.NewCertPool()
-	caFile := []byte(gkCreds.Cert.CaCert)
+	caFile := []byte(gkCreds.CaCert)
 
 	ca.AppendCertsFromPEM(caFile)
 
@@ -149,7 +149,7 @@ func (gc *GatekeeperClient) RegisterServiceEndpoint(serviceName, address string,
 
 // GetCredentials returns already loaded Gatekeeper credentials.
 func (gc *GatekeeperClient) GetCredentials() *cs.ServiceCredentials {
-	return gc.credentials.Cert
+	return &gc.credentials
 }
 
 func (gc *GatekeeperClient) registerEPInternal(serviceName, endpointName, address string, tags []string) error {
@@ -231,6 +231,6 @@ func (gc *GatekeeperClient) newCredsReceievedFromGK(credentials cs.ServiceCreden
 			panic(e)
 		}
 	}
-	gc.credentials.Cert = &credentials
+	gc.credentials = credentials
 	gc.config.CredentialsRenewedHandler()
 }

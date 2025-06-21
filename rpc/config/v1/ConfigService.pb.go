@@ -301,6 +301,7 @@ type ServiceCredentials struct {
 	ExpiresAt     uint64                 `protobuf:"varint,3,opt,name=expiresAt,proto3" json:"expiresAt,omitempty"`
 	IssuerCert    string                 `protobuf:"bytes,4,opt,name=issuerCert,proto3" json:"issuerCert,omitempty"`
 	PrivateKey    string                 `protobuf:"bytes,5,opt,name=private_key,json=privateKey,proto3" json:"private_key,omitempty"`
+	Id            *string                `protobuf:"bytes,6,opt,name=id,proto3,oneof" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -370,6 +371,13 @@ func (x *ServiceCredentials) GetPrivateKey() string {
 	return ""
 }
 
+func (x *ServiceCredentials) GetId() string {
+	if x != nil && x.Id != nil {
+		return *x.Id
+	}
+	return ""
+}
+
 type NewServiceRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	SvcDetails      *Service               `protobuf:"bytes,1,opt,name=svcDetails,proto3" json:"svcDetails,omitempty"`
@@ -422,58 +430,6 @@ func (x *NewServiceRequest) GetParentNamespace() string {
 	return ""
 }
 
-type NewServiceResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Cert          *ServiceCredentials    `protobuf:"bytes,2,opt,name=cert,proto3" json:"cert,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *NewServiceResponse) Reset() {
-	*x = NewServiceResponse{}
-	mi := &file_ConfigService_proto_msgTypes[6]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *NewServiceResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*NewServiceResponse) ProtoMessage() {}
-
-func (x *NewServiceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ConfigService_proto_msgTypes[6]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use NewServiceResponse.ProtoReflect.Descriptor instead.
-func (*NewServiceResponse) Descriptor() ([]byte, []int) {
-	return file_ConfigService_proto_rawDescGZIP(), []int{6}
-}
-
-func (x *NewServiceResponse) GetId() string {
-	if x != nil {
-		return x.Id
-	}
-	return ""
-}
-
-func (x *NewServiceResponse) GetCert() *ServiceCredentials {
-	if x != nil {
-		return x.Cert
-	}
-	return nil
-}
-
 type NewNamespaceRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Domain        *Namespace             `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"`
@@ -483,7 +439,7 @@ type NewNamespaceRequest struct {
 
 func (x *NewNamespaceRequest) Reset() {
 	*x = NewNamespaceRequest{}
-	mi := &file_ConfigService_proto_msgTypes[7]
+	mi := &file_ConfigService_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -495,7 +451,7 @@ func (x *NewNamespaceRequest) String() string {
 func (*NewNamespaceRequest) ProtoMessage() {}
 
 func (x *NewNamespaceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ConfigService_proto_msgTypes[7]
+	mi := &file_ConfigService_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -508,7 +464,7 @@ func (x *NewNamespaceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NewNamespaceRequest.ProtoReflect.Descriptor instead.
 func (*NewNamespaceRequest) Descriptor() ([]byte, []int) {
-	return file_ConfigService_proto_rawDescGZIP(), []int{7}
+	return file_ConfigService_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *NewNamespaceRequest) GetDomain() *Namespace {
@@ -527,7 +483,7 @@ type ByNameRequest struct {
 
 func (x *ByNameRequest) Reset() {
 	*x = ByNameRequest{}
-	mi := &file_ConfigService_proto_msgTypes[8]
+	mi := &file_ConfigService_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -539,7 +495,7 @@ func (x *ByNameRequest) String() string {
 func (*ByNameRequest) ProtoMessage() {}
 
 func (x *ByNameRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ConfigService_proto_msgTypes[8]
+	mi := &file_ConfigService_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -552,7 +508,7 @@ func (x *ByNameRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ByNameRequest.ProtoReflect.Descriptor instead.
 func (*ByNameRequest) Descriptor() ([]byte, []int) {
-	return file_ConfigService_proto_rawDescGZIP(), []int{8}
+	return file_ConfigService_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ByNameRequest) GetName() string {
@@ -573,7 +529,7 @@ type AliasRequest struct {
 
 func (x *AliasRequest) Reset() {
 	*x = AliasRequest{}
-	mi := &file_ConfigService_proto_msgTypes[9]
+	mi := &file_ConfigService_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -585,7 +541,7 @@ func (x *AliasRequest) String() string {
 func (*AliasRequest) ProtoMessage() {}
 
 func (x *AliasRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ConfigService_proto_msgTypes[9]
+	mi := &file_ConfigService_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -598,7 +554,7 @@ func (x *AliasRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AliasRequest.ProtoReflect.Descriptor instead.
 func (*AliasRequest) Descriptor() ([]byte, []int) {
-	return file_ConfigService_proto_rawDescGZIP(), []int{9}
+	return file_ConfigService_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *AliasRequest) GetID() string {
@@ -646,7 +602,7 @@ const file_ConfigService_proto_rawDesc = "" +
 	"\x02id\x18\x06 \x01(\tR\x02id\x12<\n" +
 	"\x19allowsExternalDeviceLogin\x18\a \x01(\bR\x19allowsExternalDeviceLogin\x12,\n" +
 	"\x11enableGRPCGateway\x18\b \x01(\bR\x11enableGRPCGateway\x12?\n" +
-	"\frouteAliases\x18\t \x03(\v2\x1b.gatekeeper.config.v1.AliasR\frouteAliases\"\xae\x01\n" +
+	"\frouteAliases\x18\t \x03(\v2\x1b.gatekeeper.config.v1.AliasR\frouteAliases\"\xca\x01\n" +
 	"\x12ServiceCredentials\x12\x17\n" +
 	"\aca_cert\x18\x01 \x01(\tR\x06caCert\x12 \n" +
 	"\vcertificate\x18\x02 \x01(\tR\vcertificate\x12\x1c\n" +
@@ -655,15 +611,14 @@ const file_ConfigService_proto_rawDesc = "" +
 	"issuerCert\x18\x04 \x01(\tR\n" +
 	"issuerCert\x12\x1f\n" +
 	"\vprivate_key\x18\x05 \x01(\tR\n" +
-	"privateKey\"|\n" +
+	"privateKey\x12\x13\n" +
+	"\x02id\x18\x06 \x01(\tH\x00R\x02id\x88\x01\x01B\x05\n" +
+	"\x03_id\"|\n" +
 	"\x11NewServiceRequest\x12=\n" +
 	"\n" +
 	"svcDetails\x18\x01 \x01(\v2\x1d.gatekeeper.config.v1.ServiceR\n" +
 	"svcDetails\x12(\n" +
-	"\x0fparentNamespace\x18\x02 \x01(\tR\x0fparentNamespace\"b\n" +
-	"\x12NewServiceResponse\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12<\n" +
-	"\x04cert\x18\x02 \x01(\v2(.gatekeeper.config.v1.ServiceCredentialsR\x04cert\"N\n" +
+	"\x0fparentNamespace\x18\x02 \x01(\tR\x0fparentNamespace\"N\n" +
 	"\x13NewNamespaceRequest\x127\n" +
 	"\x06domain\x18\x01 \x01(\v2\x1f.gatekeeper.config.v1.NamespaceR\x06domain\"#\n" +
 	"\rByNameRequest\x12\x12\n" +
@@ -674,7 +629,7 @@ const file_ConfigService_proto_rawDesc = "" +
 	"\x05route\x18\x03 \x01(\tR\x05route2\xe0\x06\n" +
 	"\rConfigService\x12_\n" +
 	"\n" +
-	"NewService\x12'.gatekeeper.config.v1.NewServiceRequest\x1a(.gatekeeper.config.v1.NewServiceResponse\x12S\n" +
+	"NewService\x12'.gatekeeper.config.v1.NewServiceRequest\x1a(.gatekeeper.config.v1.ServiceCredentials\x12S\n" +
 	"\fNewNamespace\x12).gatekeeper.config.v1.NewNamespaceRequest\x1a\x18.gatekeeper.config.v1.ID\x12U\n" +
 	"\rNewRouteAlias\x12\".gatekeeper.config.v1.AliasRequest\x1a .gatekeeper.services.types.Empty\x12I\n" +
 	"\x0eGetServiceByID\x12\x18.gatekeeper.config.v1.ID\x1a\x1d.gatekeeper.config.v1.Service\x12M\n" +
@@ -683,7 +638,7 @@ const file_ConfigService_proto_rawDesc = "" +
 	"\x10GetServiceByName\x12#.gatekeeper.config.v1.ByNameRequest\x1a\x1d.gatekeeper.config.v1.Service\x12M\n" +
 	"\x0fDeleteNamespace\x12\x18.gatekeeper.config.v1.ID\x1a .gatekeeper.services.types.Empty\x12K\n" +
 	"\rDeleteService\x12\x18.gatekeeper.config.v1.ID\x1a .gatekeeper.services.types.Empty\x12X\n" +
-	"\x12RequestCertRenewal\x12\x18.gatekeeper.config.v1.ID\x1a(.gatekeeper.config.v1.NewServiceResponseB\fZ\n" +
+	"\x12RequestCertRenewal\x12\x18.gatekeeper.config.v1.ID\x1a(.gatekeeper.config.v1.ServiceCredentialsB\fZ\n" +
 	"/config/v1b\x06proto3"
 
 var (
@@ -698,7 +653,7 @@ func file_ConfigService_proto_rawDescGZIP() []byte {
 	return file_ConfigService_proto_rawDescData
 }
 
-var file_ConfigService_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_ConfigService_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_ConfigService_proto_goTypes = []any{
 	(*ID)(nil),                  // 0: gatekeeper.config.v1.ID
 	(*Alias)(nil),               // 1: gatekeeper.config.v1.Alias
@@ -706,42 +661,40 @@ var file_ConfigService_proto_goTypes = []any{
 	(*Service)(nil),             // 3: gatekeeper.config.v1.Service
 	(*ServiceCredentials)(nil),  // 4: gatekeeper.config.v1.ServiceCredentials
 	(*NewServiceRequest)(nil),   // 5: gatekeeper.config.v1.NewServiceRequest
-	(*NewServiceResponse)(nil),  // 6: gatekeeper.config.v1.NewServiceResponse
-	(*NewNamespaceRequest)(nil), // 7: gatekeeper.config.v1.NewNamespaceRequest
-	(*ByNameRequest)(nil),       // 8: gatekeeper.config.v1.ByNameRequest
-	(*AliasRequest)(nil),        // 9: gatekeeper.config.v1.AliasRequest
-	(*types.Empty)(nil),         // 10: gatekeeper.services.types.Empty
+	(*NewNamespaceRequest)(nil), // 6: gatekeeper.config.v1.NewNamespaceRequest
+	(*ByNameRequest)(nil),       // 7: gatekeeper.config.v1.ByNameRequest
+	(*AliasRequest)(nil),        // 8: gatekeeper.config.v1.AliasRequest
+	(*types.Empty)(nil),         // 9: gatekeeper.services.types.Empty
 }
 var file_ConfigService_proto_depIdxs = []int32{
 	1,  // 0: gatekeeper.config.v1.Service.routeAliases:type_name -> gatekeeper.config.v1.Alias
 	3,  // 1: gatekeeper.config.v1.NewServiceRequest.svcDetails:type_name -> gatekeeper.config.v1.Service
-	4,  // 2: gatekeeper.config.v1.NewServiceResponse.cert:type_name -> gatekeeper.config.v1.ServiceCredentials
-	2,  // 3: gatekeeper.config.v1.NewNamespaceRequest.domain:type_name -> gatekeeper.config.v1.Namespace
-	5,  // 4: gatekeeper.config.v1.ConfigService.NewService:input_type -> gatekeeper.config.v1.NewServiceRequest
-	7,  // 5: gatekeeper.config.v1.ConfigService.NewNamespace:input_type -> gatekeeper.config.v1.NewNamespaceRequest
-	9,  // 6: gatekeeper.config.v1.ConfigService.NewRouteAlias:input_type -> gatekeeper.config.v1.AliasRequest
-	0,  // 7: gatekeeper.config.v1.ConfigService.GetServiceByID:input_type -> gatekeeper.config.v1.ID
-	0,  // 8: gatekeeper.config.v1.ConfigService.GetNamespaceByID:input_type -> gatekeeper.config.v1.ID
-	8,  // 9: gatekeeper.config.v1.ConfigService.GetNamespaceByName:input_type -> gatekeeper.config.v1.ByNameRequest
-	8,  // 10: gatekeeper.config.v1.ConfigService.GetServiceByName:input_type -> gatekeeper.config.v1.ByNameRequest
-	0,  // 11: gatekeeper.config.v1.ConfigService.DeleteNamespace:input_type -> gatekeeper.config.v1.ID
-	0,  // 12: gatekeeper.config.v1.ConfigService.DeleteService:input_type -> gatekeeper.config.v1.ID
-	0,  // 13: gatekeeper.config.v1.ConfigService.RequestCertRenewal:input_type -> gatekeeper.config.v1.ID
-	6,  // 14: gatekeeper.config.v1.ConfigService.NewService:output_type -> gatekeeper.config.v1.NewServiceResponse
-	0,  // 15: gatekeeper.config.v1.ConfigService.NewNamespace:output_type -> gatekeeper.config.v1.ID
-	10, // 16: gatekeeper.config.v1.ConfigService.NewRouteAlias:output_type -> gatekeeper.services.types.Empty
-	3,  // 17: gatekeeper.config.v1.ConfigService.GetServiceByID:output_type -> gatekeeper.config.v1.Service
-	2,  // 18: gatekeeper.config.v1.ConfigService.GetNamespaceByID:output_type -> gatekeeper.config.v1.Namespace
-	2,  // 19: gatekeeper.config.v1.ConfigService.GetNamespaceByName:output_type -> gatekeeper.config.v1.Namespace
-	3,  // 20: gatekeeper.config.v1.ConfigService.GetServiceByName:output_type -> gatekeeper.config.v1.Service
-	10, // 21: gatekeeper.config.v1.ConfigService.DeleteNamespace:output_type -> gatekeeper.services.types.Empty
-	10, // 22: gatekeeper.config.v1.ConfigService.DeleteService:output_type -> gatekeeper.services.types.Empty
-	6,  // 23: gatekeeper.config.v1.ConfigService.RequestCertRenewal:output_type -> gatekeeper.config.v1.NewServiceResponse
-	14, // [14:24] is the sub-list for method output_type
-	4,  // [4:14] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	2,  // 2: gatekeeper.config.v1.NewNamespaceRequest.domain:type_name -> gatekeeper.config.v1.Namespace
+	5,  // 3: gatekeeper.config.v1.ConfigService.NewService:input_type -> gatekeeper.config.v1.NewServiceRequest
+	6,  // 4: gatekeeper.config.v1.ConfigService.NewNamespace:input_type -> gatekeeper.config.v1.NewNamespaceRequest
+	8,  // 5: gatekeeper.config.v1.ConfigService.NewRouteAlias:input_type -> gatekeeper.config.v1.AliasRequest
+	0,  // 6: gatekeeper.config.v1.ConfigService.GetServiceByID:input_type -> gatekeeper.config.v1.ID
+	0,  // 7: gatekeeper.config.v1.ConfigService.GetNamespaceByID:input_type -> gatekeeper.config.v1.ID
+	7,  // 8: gatekeeper.config.v1.ConfigService.GetNamespaceByName:input_type -> gatekeeper.config.v1.ByNameRequest
+	7,  // 9: gatekeeper.config.v1.ConfigService.GetServiceByName:input_type -> gatekeeper.config.v1.ByNameRequest
+	0,  // 10: gatekeeper.config.v1.ConfigService.DeleteNamespace:input_type -> gatekeeper.config.v1.ID
+	0,  // 11: gatekeeper.config.v1.ConfigService.DeleteService:input_type -> gatekeeper.config.v1.ID
+	0,  // 12: gatekeeper.config.v1.ConfigService.RequestCertRenewal:input_type -> gatekeeper.config.v1.ID
+	4,  // 13: gatekeeper.config.v1.ConfigService.NewService:output_type -> gatekeeper.config.v1.ServiceCredentials
+	0,  // 14: gatekeeper.config.v1.ConfigService.NewNamespace:output_type -> gatekeeper.config.v1.ID
+	9,  // 15: gatekeeper.config.v1.ConfigService.NewRouteAlias:output_type -> gatekeeper.services.types.Empty
+	3,  // 16: gatekeeper.config.v1.ConfigService.GetServiceByID:output_type -> gatekeeper.config.v1.Service
+	2,  // 17: gatekeeper.config.v1.ConfigService.GetNamespaceByID:output_type -> gatekeeper.config.v1.Namespace
+	2,  // 18: gatekeeper.config.v1.ConfigService.GetNamespaceByName:output_type -> gatekeeper.config.v1.Namespace
+	3,  // 19: gatekeeper.config.v1.ConfigService.GetServiceByName:output_type -> gatekeeper.config.v1.Service
+	9,  // 20: gatekeeper.config.v1.ConfigService.DeleteNamespace:output_type -> gatekeeper.services.types.Empty
+	9,  // 21: gatekeeper.config.v1.ConfigService.DeleteService:output_type -> gatekeeper.services.types.Empty
+	4,  // 22: gatekeeper.config.v1.ConfigService.RequestCertRenewal:output_type -> gatekeeper.config.v1.ServiceCredentials
+	13, // [13:23] is the sub-list for method output_type
+	3,  // [3:13] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_ConfigService_proto_init() }
@@ -749,13 +702,14 @@ func file_ConfigService_proto_init() {
 	if File_ConfigService_proto != nil {
 		return
 	}
+	file_ConfigService_proto_msgTypes[4].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ConfigService_proto_rawDesc), len(file_ConfigService_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

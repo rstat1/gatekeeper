@@ -36,7 +36,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ConfigServiceClient interface {
-	NewService(ctx context.Context, in *NewServiceRequest, opts ...grpc.CallOption) (*NewServiceResponse, error)
+	NewService(ctx context.Context, in *NewServiceRequest, opts ...grpc.CallOption) (*ServiceCredentials, error)
 	NewNamespace(ctx context.Context, in *NewNamespaceRequest, opts ...grpc.CallOption) (*ID, error)
 	NewRouteAlias(ctx context.Context, in *AliasRequest, opts ...grpc.CallOption) (*types.Empty, error)
 	GetServiceByID(ctx context.Context, in *ID, opts ...grpc.CallOption) (*Service, error)
@@ -45,7 +45,7 @@ type ConfigServiceClient interface {
 	GetServiceByName(ctx context.Context, in *ByNameRequest, opts ...grpc.CallOption) (*Service, error)
 	DeleteNamespace(ctx context.Context, in *ID, opts ...grpc.CallOption) (*types.Empty, error)
 	DeleteService(ctx context.Context, in *ID, opts ...grpc.CallOption) (*types.Empty, error)
-	RequestCertRenewal(ctx context.Context, in *ID, opts ...grpc.CallOption) (*NewServiceResponse, error)
+	RequestCertRenewal(ctx context.Context, in *ID, opts ...grpc.CallOption) (*ServiceCredentials, error)
 }
 
 type configServiceClient struct {
@@ -56,9 +56,9 @@ func NewConfigServiceClient(cc grpc.ClientConnInterface) ConfigServiceClient {
 	return &configServiceClient{cc}
 }
 
-func (c *configServiceClient) NewService(ctx context.Context, in *NewServiceRequest, opts ...grpc.CallOption) (*NewServiceResponse, error) {
+func (c *configServiceClient) NewService(ctx context.Context, in *NewServiceRequest, opts ...grpc.CallOption) (*ServiceCredentials, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(NewServiceResponse)
+	out := new(ServiceCredentials)
 	err := c.cc.Invoke(ctx, ConfigService_NewService_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -146,9 +146,9 @@ func (c *configServiceClient) DeleteService(ctx context.Context, in *ID, opts ..
 	return out, nil
 }
 
-func (c *configServiceClient) RequestCertRenewal(ctx context.Context, in *ID, opts ...grpc.CallOption) (*NewServiceResponse, error) {
+func (c *configServiceClient) RequestCertRenewal(ctx context.Context, in *ID, opts ...grpc.CallOption) (*ServiceCredentials, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(NewServiceResponse)
+	out := new(ServiceCredentials)
 	err := c.cc.Invoke(ctx, ConfigService_RequestCertRenewal_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -160,7 +160,7 @@ func (c *configServiceClient) RequestCertRenewal(ctx context.Context, in *ID, op
 // All implementations must embed UnimplementedConfigServiceServer
 // for forward compatibility.
 type ConfigServiceServer interface {
-	NewService(context.Context, *NewServiceRequest) (*NewServiceResponse, error)
+	NewService(context.Context, *NewServiceRequest) (*ServiceCredentials, error)
 	NewNamespace(context.Context, *NewNamespaceRequest) (*ID, error)
 	NewRouteAlias(context.Context, *AliasRequest) (*types.Empty, error)
 	GetServiceByID(context.Context, *ID) (*Service, error)
@@ -169,7 +169,7 @@ type ConfigServiceServer interface {
 	GetServiceByName(context.Context, *ByNameRequest) (*Service, error)
 	DeleteNamespace(context.Context, *ID) (*types.Empty, error)
 	DeleteService(context.Context, *ID) (*types.Empty, error)
-	RequestCertRenewal(context.Context, *ID) (*NewServiceResponse, error)
+	RequestCertRenewal(context.Context, *ID) (*ServiceCredentials, error)
 	mustEmbedUnimplementedConfigServiceServer()
 }
 
@@ -180,7 +180,7 @@ type ConfigServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedConfigServiceServer struct{}
 
-func (UnimplementedConfigServiceServer) NewService(context.Context, *NewServiceRequest) (*NewServiceResponse, error) {
+func (UnimplementedConfigServiceServer) NewService(context.Context, *NewServiceRequest) (*ServiceCredentials, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NewService not implemented")
 }
 func (UnimplementedConfigServiceServer) NewNamespace(context.Context, *NewNamespaceRequest) (*ID, error) {
@@ -207,7 +207,7 @@ func (UnimplementedConfigServiceServer) DeleteNamespace(context.Context, *ID) (*
 func (UnimplementedConfigServiceServer) DeleteService(context.Context, *ID) (*types.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteService not implemented")
 }
-func (UnimplementedConfigServiceServer) RequestCertRenewal(context.Context, *ID) (*NewServiceResponse, error) {
+func (UnimplementedConfigServiceServer) RequestCertRenewal(context.Context, *ID) (*ServiceCredentials, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RequestCertRenewal not implemented")
 }
 func (UnimplementedConfigServiceServer) mustEmbedUnimplementedConfigServiceServer() {}
