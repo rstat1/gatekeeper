@@ -209,18 +209,23 @@ func (gc *GatekeeperClient) logWarn(extraKey string, extraValue interface{}, ent
 		gc.logger.WithFields(logrus.Fields{"func": name, "line": line, "originator": "gatekeeper-sdk"}).Warnln(entry)
 	}
 }
-func (gc *GatekeeperClient) logError(extraKey string, extraValue interface{}, entry interface{}) {
-	pc, _, line, _ := runtime.Caller(1)
-	funcObj := runtime.FuncForPC(pc)
-	runtimeFunc := regexp.MustCompile(`^.*\.(.*)$`)
-	name := runtimeFunc.ReplaceAllString(funcObj.Name(), "$1")
+func (gc *GatekeeperClient) logError(extra string, err error) error {
+	if err != nil {
+		pc, _, line, _ := runtime.Caller(1)
+		funcObj := runtime.FuncForPC(pc)
+		runtimeFunc := regexp.MustCompile(`^.*\.(.*)$`)
+		name := runtimeFunc.ReplaceAllString(funcObj.Name(), "$1")
 
-	if extraKey != "" {
-		gc.logger.WithFields(logrus.Fields{extraKey: extraValue, "func": name, "line": line, "originator": "gatekeeper-sdk"}).Errorln(entry)
-	} else {
-		gc.logger.WithFields(logrus.Fields{"func": name, "line": line, "originator": "gatekeeper-sdk"}).Errorln(entry)
+		if extra != "" {
+			gc.logger.WithFields(logrus.Fields{"func": name, "line": line, "extra": extra, "originator": "gatekeeper-sdk"}).Errorln(err)
+		} else {
+			gc.logger.WithFields(logrus.Fields{"func": name, "line": line, "originator": "gatekeeper-sdk"}).Errorln(err)
+		}
+		return err
 	}
+	return nil
 }
+
 func (gc *GatekeeperClient) newCredsReceievedFromGK(credentials cs.ServiceCredentials) {
 	if gc.config.ClientIsRunningOnKubernetes {
 		err := ForceExternalSecretSync(gc.config.ServiceName)
@@ -239,5 +244,5 @@ func (gc *GatekeeperClient) newCredsReceievedFromGK(credentials cs.ServiceCreden
 }
 func (gc *GatekeeperClient) getClientID(info *tls.CertificateRequestInfo) (cert *tls.Certificate, e error) {
 	c, err := tls.X509KeyPair([]byte(gc.credentials.Certificate), []byte(gc.credentials.PrivateKey))
-	return &c, err
+	return &c, gc.logError("", err)
 }
