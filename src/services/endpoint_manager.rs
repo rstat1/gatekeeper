@@ -149,12 +149,21 @@ impl EndpointManagerImpl {
 			Err(_) => (false, "".to_string()),
 		}
 	}
-	pub async fn NSIDToname(&self, id: &String) -> String {
+	pub async fn NSIDToName(&self, id: &String) -> String {
 		let domainList = self.domains.read().await;
 		if let Some(name) = domainList.iter().find(|s| *s.id == *id) {
 			name.base.clone()
 		} else {
 			warn!("didn't find a valid namespace for {}", id);
+			"".to_string()
+		}
+	}
+	pub async fn NSNameToID(&self, name: &String) -> String {
+		let domainList = self.domains.read().await;
+		if let Some(name) = domainList.iter().find(|s| *s.base == *name) {
+			name.id.clone()
+		} else {
+			warn!("didn't find a valid namespace for {}", name);
 			"".to_string()
 		}
 	}

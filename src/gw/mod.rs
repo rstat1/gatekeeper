@@ -15,10 +15,7 @@ use std::sync::Arc;
 use tonic::async_trait;
 use tracing::{debug, error, info};
 
-use crate::{
-	pki::CertManagerSvc,
-	services::{endpoint_manager::EndpointManagerImpl, v1::ServiceCredentials},
-};
+use crate::{pki::CertManagerSvc, services::endpoint_manager::EndpointManagerImpl};
 
 const DEVICE_API_CONTENT_TYPE: &str = "application/x-gatekeeper-device-api";
 
@@ -27,6 +24,7 @@ pub mod reverse_proxy;
 
 pub struct DynamicCert {
 	cmSvc: Arc<CertManagerSvc>,
+	epMgr: Arc<EndpointManagerImpl>,
 }
 pub struct ReverseProxy {
 	cmSvc: Arc<CertManagerSvc>,
@@ -50,8 +48,8 @@ impl ReverseProxy {
 }
 
 impl DynamicCert {
-	pub fn new(cmSvc: Arc<CertManagerSvc>) -> Box<Self> {
-		Box::new(DynamicCert { cmSvc })
+	pub fn new(cmSvc: Arc<CertManagerSvc>, epMgr: Arc<EndpointManagerImpl>) -> Box<Self> {
+		Box::new(DynamicCert { cmSvc, epMgr })
 	}
 }
 
@@ -65,7 +63,8 @@ impl pingora::listeners::TlsAccept for DynamicCert {
 			let url: Uri = serverName.parse().unwrap();
 			let urlParts: Vec<&str> = url.host().unwrap().split(".").collect();
 			let base = url.to_string().replace(urlParts[0], "").replacen(".", "", 1);
-			let cert = self.cmSvc.GetCachedNSCert(base).await;
+			let nsId = self.epMgr.NSNameToID(&base).await;
+			let cert = self.cmSvc.GetCachedNSCert(nsId).await;
 
 			if let Some(nsCert) = cert {
 				debug!("got cert");
@@ -97,6 +96,8 @@ impl pingora::listeners::TlsAccept for DynamicCert {
 						error!("{:?}", errs);
 					}
 				}
+			} else {
+				error!("no cert in cache for {base}");
 			}
 		}
 	}

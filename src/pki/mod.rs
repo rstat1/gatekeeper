@@ -118,9 +118,10 @@ impl CertManagerSvc {
 									certStatusReg
 										.Add(RegisteredCertificate { issuedFor: cert.namespace.clone(), certType: CertificateType::Namespace })
 										.await;
-									nsCertCache.insert(key.to_string(), cert);
+									nsCertCache.insert(key.as_str().unwrap().to_string(), cert);
 								}
 								Err(e) => {
+									error!("{e}");
 									return Err(e);
 								}
 							}

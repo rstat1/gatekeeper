@@ -175,11 +175,6 @@ fn main() {
 		}
 	}
 
-	let dynamic_cert = DynamicCert::new(cmSvc.clone());
-	let mut tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
-	tls_settings.enable_h2();
-	// tls_settings.enable_ocsp_stapling();
-
 	let async_sri_init = async { EndpointManagerImpl::new(db.clone(), svcsList.clone(), cmSvc.clone(), certUpdatesReceiver, certStatusRegistry.clone()).await };
 	match rt.block_on(async_sri_init) {
 		Ok(sri) => {
@@ -188,6 +183,12 @@ fn main() {
 		}
 		Err(e) => panic!("{:?}", e),
 	}
+
+	let dynamic_cert = DynamicCert::new(cmSvc.clone(), srImpl.clone());
+	let mut tls_settings = TlsSettings::with_callbacks(dynamic_cert).unwrap();
+	tls_settings.enable_h2();
+	// tls_settings.enable_ocsp_stapling();
+
 	apiImpl = ConfigServiceImpl::new(db.clone(), cmSvc.clone(), srImpl.clone(), certStatusRegistry.clone());
 
 	let mut staticServer: ListeningService<StaticFileServer> = StaticFileServer::Service();
