@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
 	"regexp"
 	"runtime"
@@ -17,6 +18,7 @@ import (
 	ep "go.alargerobot.dev/gatekeeper/sdk/rpc/endpoint_manager/v1"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/tls/certprovider"
 	"google.golang.org/grpc/security/advancedtls"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -63,6 +65,7 @@ type DeviceAuthClientResponse struct {
 // in the same folder as the server binary. Optionally you can also provide the path to the file
 // in an environment variable named "CREDENTIALS_FILE_PATH"
 func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
+	fmt.Println("hi")
 	var e error
 	var credsFilePath string
 	var gkCreds cs.ServiceCredentials
@@ -96,18 +99,19 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 	}
 
 	gkc := &GatekeeperClient{
-		logger:          logger,
-		config:          config,
-		credentials:     gkCreds,		
+		logger:      logger,
+		config:      config,
+		credentials: gkCreds,
 	}
-	
+
 	ca := x509.NewCertPool()
 	caFile := []byte(gkCreds.CaCert)
 	ca.AppendCertsFromPEM(caFile)
 
 	advTLSOpts := &advancedtls.Options{
 		IdentityOptions: advancedtls.IdentityCertificateOptions{
-			GetIdentityCertificatesForClient: gkc.getClientID,
+			IdentityProvider: gkc,
+			// GetIdentityCertificatesForClient: gkc.getClientID,
 		},
 		RootOptions: advancedtls.RootCertificateOptions{
 			RootCertificates: ca,
@@ -123,8 +127,8 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 		panic(e)
 	}
 
-	gkc.grpcClient =      grpcClient
-	gkc.configService =   cs.NewConfigServiceClient(grpcClient)
+	gkc.grpcClient = grpcClient
+	gkc.configService = cs.NewConfigServiceClient(grpcClient)
 	gkc.endpointManager = ep.NewEndpointManagerClient(grpcClient)
 	gkc.epsServer = newEndpointServiceServer(false, "", gkc, gkc.newCredsReceievedFromGK)
 	go gkc.epsServer.ListenAndServe(config.EndpointServicesPort)
@@ -243,6 +247,22 @@ func (gc *GatekeeperClient) newCredsReceievedFromGK(credentials cs.ServiceCreden
 	gc.config.CredentialsRenewedHandler()
 }
 func (gc *GatekeeperClient) getClientID(info *tls.CertificateRequestInfo) (cert *tls.Certificate, e error) {
+	gc.logInfo("", "", "getClientID")
 	c, err := tls.X509KeyPair([]byte(gc.credentials.Certificate), []byte(gc.credentials.PrivateKey))
+	gc.logError("", info.SupportsCertificate(&c))
 	return &c, gc.logError("", err)
 }
+func (gc *GatekeeperClient) KeyMaterial(ctx context.Context) (*certprovider.KeyMaterial, error) {
+	gc.logInfo("", "", "getClientID")
+	c, err := tls.X509KeyPair([]byte(gc.credentials.Certificate), []byte(gc.credentials.PrivateKey))
+
+	ca := x509.NewCertPool()
+	caFile := []byte(gc.credentials.CaCert)
+	ca.AppendCertsFromPEM(caFile)
+
+	return &certprovider.KeyMaterial{
+		Certs: []tls.Certificate{c},
+		Roots: ca,
+	}, err
+}
+func (gc *GatekeeperClient) Close() {}
