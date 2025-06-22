@@ -171,7 +171,7 @@ func (gc *GatekeeperClient) registerEPInternal(serviceName, endpointName, addres
 			address = actualIP + ":" + addrParts[1]
 			gc.logInfo("newAddress", address, "running in a k8s pod, overriding provided outbound IP")
 		} else {
-			gc.logError("", "", "failed to get external IP, this will cause the service to not be reachable by Gatekeeper")
+			gc.logError("", errors.New("failed to get external IP, this will cause the service to not be reachable by Gatekeeper"))
 		}
 	}
 
