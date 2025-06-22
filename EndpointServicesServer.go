@@ -114,7 +114,7 @@ func (ess *endpointServicesServer) getTLSConfig(*tls.ClientHelloInfo) (tlsConf *
 		},
 	}
 
-	return nil, nil
+	return tlsConf, nil
 }
 func (ess *endpointServicesServer) verifyToken(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
