@@ -34,39 +34,8 @@ func newEndpointServiceServer(forClient bool, deviceID string, gkc *GatekeeperCl
 }
 
 func (ess *endpointServicesServer) ListenAndServe(port int) error {
-	var ca = x509.NewCertPool()
-	var gkCreds v1.ServiceCredentials
-	var cert tls.Certificate
-
-	if ess.isEDC {
-		certPair, err := tls.LoadX509KeyPair(filepath.Base(os.Args[0])+".crt", filepath.Base(os.Args[0])+".key")
-		if err != nil {
-			panic(err)
-		}
-		cert = certPair
-		caFileBytes, _ := os.ReadFile("gkca.pem")
-		ca.AppendCertsFromPEM([]byte(caFileBytes))
-	} else {
-		gkCreds = *ess.gatekeeper.GetCredentials()
-		ca.AppendCertsFromPEM([]byte(gkCreds.CaCert))
-		certPair, err := tls.X509KeyPair([]byte(gkCreds.Certificate), []byte(gkCreds.PrivateKey))
-		if err != nil {
-			panic(err)
-		}
-		cert = certPair
-	}
-
 	tlsConf := tls.Config{
-		RootCAs:      ca,
-		ClientCAs:    ca,
-		Certificates: []tls.Certificate{cert},
-		ClientAuth:   tls.RequireAndVerifyClientCert,
-		VerifyConnection: func(cs tls.ConnectionState) error {
-			if cs.PeerCertificates[0].Subject.CommonName != "gatekeeper" && cs.ServerName != "gatekeeper" {
-				return errors.New("forbidden")
-			}
-			return nil
-		},
+		GetConfigForClient: ess.getTLSConfig,
 	}
 
 	ess.epsServer = &http.Server{
@@ -107,6 +76,45 @@ func (ess *endpointServicesServer) ServeHTTP(w http.ResponseWriter, r *http.Requ
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
+}
+func (ess *endpointServicesServer) getTLSConfig(*tls.ClientHelloInfo) (tlsConf *tls.Config, e error) {
+	var ca = x509.NewCertPool()
+	var gkCreds v1.ServiceCredentials
+	var cert tls.Certificate
+
+	if ess.isEDC {
+		certPair, err := tls.LoadX509KeyPair(filepath.Base(os.Args[0])+".crt", filepath.Base(os.Args[0])+".key")
+		if err != nil {
+			panic(err)
+		}
+		cert = certPair
+		caFileBytes, _ := os.ReadFile("gkca.pem")
+		ca.AppendCertsFromPEM([]byte(caFileBytes))
+	} else {
+		gkCreds = *ess.gatekeeper.GetCredentials()
+		ca.AppendCertsFromPEM([]byte(gkCreds.CaCert))
+		certPair, err := tls.X509KeyPair([]byte(gkCreds.Certificate), []byte(gkCreds.PrivateKey))
+		if err != nil {
+			panic(err)
+		}
+		cert = certPair
+	}
+
+	tlsConf = &tls.Config{
+		RootCAs:            ca,
+		ClientCAs:          ca,
+		Certificates:       []tls.Certificate{cert},
+		GetConfigForClient: ess.getTLSConfig,
+		ClientAuth:         tls.RequireAndVerifyClientCert,
+		VerifyConnection: func(cs tls.ConnectionState) error {
+			if cs.PeerCertificates[0].Subject.CommonName != "gatekeeper" && cs.ServerName != "gatekeeper" {
+				return errors.New("forbidden")
+			}
+			return nil
+		},
+	}
+
+	return nil, nil
 }
 func (ess *endpointServicesServer) verifyToken(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)

@@ -17,7 +17,7 @@ import (
 	ep "go.alargerobot.dev/gatekeeper/sdk/rpc/endpoint_manager/v1"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/security/advancedtls"
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
@@ -67,6 +67,10 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 	var credsFilePath string
 	var gkCreds cs.ServiceCredentials
 
+	logger := logrus.New()
+	logger.Out = os.Stderr
+	logger.SetLevel(logrus.DebugLevel)
+
 	if path, set := os.LookupEnv("CREDENTIALS_FILE_PATH"); set {
 		credsFilePath = path
 	} else {
@@ -91,40 +95,39 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 		panic(e)
 	}
 
-	cert, err := tls.X509KeyPair([]byte(gkCreds.Certificate), []byte(gkCreds.PrivateKey))
+	gkc := &GatekeeperClient{
+		logger:          logger,
+		config:          config,
+		credentials:     gkCreds,		
+	}
+	
+	ca := x509.NewCertPool()
+	caFile := []byte(gkCreds.CaCert)
+	ca.AppendCertsFromPEM(caFile)
+
+	advTLSOpts := &advancedtls.Options{
+		IdentityOptions: advancedtls.IdentityCertificateOptions{
+			GetIdentityCertificatesForClient: gkc.getClientID,
+		},
+		RootOptions: advancedtls.RootCertificateOptions{
+			RootCertificates: ca,
+		},
+	}
+
+	clientTLSCreds, err := advancedtls.NewClientCreds(advTLSOpts)
 	if err != nil {
 		panic(err)
 	}
-
-	ca := x509.NewCertPool()
-	caFile := []byte(gkCreds.CaCert)
-
-	ca.AppendCertsFromPEM(caFile)
-
-	grpcClient, e := grpc.NewClient("dns:///"+config.GatekeeperAPIAddress, grpc.WithTransportCredentials(
-		credentials.NewTLS(&tls.Config{
-			RootCAs:      ca,
-			ServerName:   "gatekeeper",
-			Certificates: []tls.Certificate{cert},
-		})))
-
+	grpcClient, e := grpc.NewClient("dns:///"+config.GatekeeperAPIAddress, grpc.WithTransportCredentials(clientTLSCreds))
 	if e != nil {
 		panic(e)
 	}
 
-	gkc := &GatekeeperClient{
-		config:          config,
-		grpcClient:      grpcClient,
-		credentials:     gkCreds,
-		configService:   cs.NewConfigServiceClient(grpcClient),
-		endpointManager: ep.NewEndpointManagerClient(grpcClient),
-	}
+	gkc.grpcClient =      grpcClient
+	gkc.configService =   cs.NewConfigServiceClient(grpcClient)
+	gkc.endpointManager = ep.NewEndpointManagerClient(grpcClient)
 	gkc.epsServer = newEndpointServiceServer(false, "", gkc, gkc.newCredsReceievedFromGK)
 	go gkc.epsServer.ListenAndServe(config.EndpointServicesPort)
-
-	gkc.logger = logrus.New()
-	gkc.logger.Out = os.Stderr
-	gkc.logger.SetLevel(logrus.DebugLevel)
 
 	return gkc
 }
@@ -233,4 +236,8 @@ func (gc *GatekeeperClient) newCredsReceievedFromGK(credentials cs.ServiceCreden
 	}
 	gc.credentials = credentials
 	gc.config.CredentialsRenewedHandler()
+}
+func (gc *GatekeeperClient) getClientID(info *tls.CertificateRequestInfo) (cert *tls.Certificate, e error) {
+	c, err := tls.X509KeyPair([]byte(gc.credentials.Certificate), []byte(gc.credentials.PrivateKey))
+	return &c, err
 }
