@@ -11,7 +11,7 @@ use hyper_util::{
 };
 use rustls::crypto::CryptoProvider;
 use rustls_pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
-use std::{net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_rustls::{
 	rustls::{
@@ -21,14 +21,9 @@ use tokio_rustls::{
 	},
 	TlsAcceptor,
 };
-use tonic::{
-	body::boxed,
-	service::Routes,
-	transport::{Certificate, Identity, Server, ServerTlsConfig},
-	Request, Response, Status,
-};
+use tonic::{body::boxed, service::Routes, Request, Response, Status};
 use tower::{ServiceBuilder, ServiceExt};
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 
 use super::{config_svc::ConfigServiceImpl, endpoint_manager::EndpointManagerImpl, types::Empty};
 use crate::{

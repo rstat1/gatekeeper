@@ -10,7 +10,6 @@
 #![allow(nonstandard_style)]
 
 use once_cell::sync::Lazy;
-
 use crate::data::SystemConfiguration;
 
 pub mod data;
@@ -19,7 +18,6 @@ pub mod services;
 pub mod vault;
 pub mod cloudflare_api;
 pub mod pki;
-
 
 const ERROR_PAGE: &'static str = include_str!("assets/error_page.html");
 

@@ -136,7 +136,7 @@ impl ConfigServiceImpl {
 							return Err(e);
 						}
 					}
-					let name = self.epMgr.NSIDToname(id).await;
+					let name = self.epMgr.NSIDToName(id).await;
 					self.certStatusRegistry.Remove(&name).await;
 					Ok(true)
 				} else {
