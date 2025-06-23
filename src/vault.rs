@@ -8,6 +8,7 @@
 use base64::{alphabet, engine, engine::general_purpose, Engine};
 use bytes::Bytes;
 use derive_builder::Builder;
+use reqwest::Identity;
 use rustify::{clients::reqwest::Client as HTTPClient, errors::ClientError, Client, Endpoint, MiddleWare};
 use rustify_derive::Endpoint;
 use serde::de::DeserializeOwned;
@@ -16,8 +17,8 @@ use serde_derive::Deserialize;
 
 use serde_json::Value;
 use std::{collections::HashMap, env, sync::Arc};
-use tokio::time::Duration;
-use tracing::{error, info, warn};
+use tokio::{sync::Mutex, time::Duration};
+use tracing::{debug, error, info, warn};
 
 use crate::{services::v1::ServiceCredentials, SYSTEM_CONFIG};
 
@@ -77,7 +78,12 @@ struct KVDestroyRequest {
 struct LookupTokenRequest {}
 
 #[derive(Builder, Endpoint, Default)]
-#[endpoint(path = "/v1/auth/token/renew-self", method = "GET", builder = "true", response = "TokenRenewResponse")]
+#[endpoint(path = "/v1/auth/cert/login", method = "POST", builder = "true", response = "TLSAuthResponse")]
+#[builder(setter(into, strip_option), default)]
+struct TLSAuthRequest {}
+
+#[derive(Builder, Endpoint, Default)]
+#[endpoint(path = "/v1/auth/token/renew-self", method = "POST", builder = "true", response = "RenewTokenResponse")]
 #[builder(setter(into, strip_option), default)]
 struct RenewTokenRequest {
 	#[endpoint(skip)]
@@ -173,7 +179,7 @@ pub struct EABData {
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TokenRenewResponse {}
+struct RenewTokenResponse;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -236,13 +242,16 @@ pub struct DecryptedResponse {
 	pub plaintext: String,
 }
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct RevokeCertResponse {
-	pub revocation_time: String,
+	pub revocation_time: i64,
+	pub revocation_time_rfc3339: String,
 }
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TLSAuthResponse;
 
 struct AddTokenMiddleware {
-	pub token: String,
+	pub token: Mutex<String>,
 }
 struct TokenRenewer {
 	client: Arc<VaultClient>,
@@ -271,7 +280,7 @@ pub struct WrapInfo {
 }
 
 /// The information stored in the optional `auth` field of API responses
-#[derive(Deserialize, Debug)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AuthInfo {
 	pub client_token: String,
 	pub accessor: String,
@@ -283,6 +292,8 @@ pub struct AuthInfo {
 	pub entity_id: String,
 	pub token_type: String,
 	pub orphan: bool,
+	pub mfa_requirement: Option<bool>,
+	pub num_uses: i32,
 }
 pub struct WrappedResponse<E: Endpoint> {
 	pub info: WrapInfo,
@@ -309,8 +320,14 @@ impl Into<ServiceCredentials> for Certificate {
 
 impl MiddleWare for AddTokenMiddleware {
 	fn request<E: Endpoint>(&self, _: &E, req: &mut http::Request<Vec<u8>>) -> Result<(), rustify::errors::ClientError> {
-		if !self.token.is_empty() {
-			req.headers_mut().append("X-Vault-Token", http::HeaderValue::from_str(self.token.as_str()).unwrap());
+		let token = self.token.try_lock();
+		if token.is_ok() {
+			let token = token.unwrap();
+			if !token.is_empty() {
+				req.headers_mut().append("X-Vault-Token", http::HeaderValue::from_str(token.as_str()).unwrap());
+			}
+		} else {
+			warn!("couldn't lock token")
 		}
 		Ok(())
 	}
@@ -332,46 +349,45 @@ where
 }
 impl VaultClient {
 	pub async fn new(vault_ep: &String, dev: bool) -> Result<Arc<Self>, String> {
-		match env::var_os("INITTOKEN") {
-			Some(t) => {
-				if let Ok(init_token) = t.into_string() {
-					let mut httpClient = reqwest::ClientBuilder::new().use_rustls_tls();
-					let certFile = std::fs::read_to_string("").unwrap_or("".to_string());
-					httpClient = httpClient.add_root_certificate(reqwest::Certificate::from_pem(&Bytes::from(certFile)).unwrap());
+		let mut httpClient = reqwest::ClientBuilder::new().use_rustls_tls();
+		let caCertFile = std::fs::read_to_string("certs/gkroot.pem").unwrap_or("".to_string());
+		let certFile = std::fs::read_to_string("certs/gkcert.pem").unwrap_or("".to_string());
+		let gkID = Identity::from_pem(&Bytes::from(certFile));
 
-					httpClient = httpClient.danger_accept_invalid_certs(true);
-					let httpClient = httpClient.build().unwrap();
-					let httpC = HTTPClient::new(vault_ep, httpClient);
-
-					let vault = Arc::new(Self { httpClient: httpC, atm: AddTokenMiddleware { token: init_token }, dev });
-
-					let tokenReq = LookupTokenRequest::builder().build().unwrap();
-					let result = tokenReq.with_middleware(&vault.atm).exec(&vault.httpClient).await.unwrap().wrap::<VaultResult<_>>();
-					match result {
-						Ok(r) => {
-							let resp: TokenData = getActualResponse(r).unwrap();
-							if resp.ttl == 0 {
-								warn!("token has no ttl?");
-							} else {
-								info!("renew token in {} seconds", resp.ttl - 45);
-								vault.startRenewalTimer(resp.ttl - 45).await;
-							}
-							return Ok(vault);
-						}
-						Err(e) => {
-							match &e {
-								ClientError::ServerResponseError { code, content } => error!("{}: {:?}", code, content),
-								ClientError::ResponseParseError { source, content } => error!("{}: {:?}", source, content),
-								_ => error!("{}", &e),
-							}
-							Err(e.to_string())
-						}
-					}
-				} else {
-					Err("invalid init token".to_string())
-				}
+		httpClient = httpClient.add_root_certificate(reqwest::Certificate::from_pem(&Bytes::from(caCertFile)).unwrap());
+		match gkID {
+			Ok(id) => {
+				httpClient = httpClient.identity(id);
 			}
-			None => Err("no init token".to_string()),
+			Err(e) => {
+				error!("failed to set identity while initializing vault client: {}", e.to_string());
+				return Err(e.to_string());
+			}
+		}
+		let httpClient = httpClient.build().unwrap();
+		let httpC = HTTPClient::new(vault_ep, httpClient);
+		let tlsAuth = TLSAuthRequest::builder().build().unwrap();
+		let result = tlsAuth.exec(&httpC).await.unwrap().wrap::<VaultResult<_>>();
+		match result {
+			Ok(r) => {
+				let authInfo = r.auth.unwrap();
+				debug!("{:?}", &authInfo);
+				let vault = Arc::new(Self { httpClient: httpC, atm: AddTokenMiddleware { token: Mutex::new(authInfo.client_token) }, dev });
+				if authInfo.renewable {
+					vault.startRenewalTimer(authInfo.lease_duration - 10).await;
+				} else {
+					warn!("token not renewable");
+				}
+				Ok(vault)
+			}
+			Err(e) => {
+				match &e {
+					ClientError::ServerResponseError { code, content } => error!("{}: {:?}", code, content),
+					ClientError::ResponseParseError { source, content } => error!("{}: {:?}", source, content),
+					_ => error!("{}", &e),
+				}
+				Err(e.to_string())
+			}
 		}
 	}
 	pub async fn GetDBCredentials(&self, dev: bool) -> Result<DBCredentials, String> {
@@ -388,8 +404,8 @@ impl VaultClient {
 			}
 			Err(e) => {
 				match &e {
-					ClientError::ServerResponseError { code, content } => error!("{}: {:?}", code, content),
-					ClientError::ResponseParseError { source, content } => error!("{}: {:?}", source, content),
+					ClientError::ServerResponseError { code, content } => error!("GetDBCredentials {}: {:?}", code, content),
+					ClientError::ResponseParseError { source, content } => error!("GetDBCredentials {}: {:?}", source, content),
 					_ => error!("{}", &e),
 				}
 				Err(e.to_string())
@@ -489,8 +505,8 @@ impl VaultClient {
 			Ok(_) => Ok(()),
 			Err(e) => {
 				match &e {
-					ClientError::ServerResponseError { code, content } => error!("{}: {:?}", code, content),
-					ClientError::ResponseParseError { source, content } => error!("{}: {:?}", source, content),
+					ClientError::ServerResponseError { code, content } => error!("WriteValueToKV {}: {:?}", code, content),
+					ClientError::ResponseParseError { source, content } => error!("WriteValueToKV {}: {:?}", source, content),
 					_ => error!("{}", &e),
 				}
 				Err(e.to_string())
@@ -514,8 +530,8 @@ impl VaultClient {
 			Ok(_) => Ok(()),
 			Err(e) => {
 				match &e {
-					ClientError::ServerResponseError { code, content } => error!("{}: {:?}", code, content),
-					ClientError::ResponseParseError { source, content } => error!("{}: {:?}", source, content),
+					ClientError::ServerResponseError { code, content } => error!("WriteStructToKV {}: {:?}", code, content),
+					ClientError::ResponseParseError { source, content } => error!("WriteStructToKV {}: {:?}", source, content),
 					_ => error!("{}", &e),
 				}
 				Err(e.to_string())
@@ -543,8 +559,8 @@ impl VaultClient {
 			Ok(_) => Ok(()),
 			Err(e) => {
 				match &e {
-					ClientError::ServerResponseError { code, content } => error!("{}: {:?}", code, content),
-					ClientError::ResponseParseError { source, content } => error!("{}: {:?}", source, content),
+					ClientError::ServerResponseError { code, content } => error!("WriteJSONToKV {}: {:?}", code, content),
+					ClientError::ResponseParseError { source, content } => error!("WriteJSONToKV {}: {:?}", source, content),
 					_ => error!("{}", &e),
 				}
 				Err(e.to_string())
@@ -567,8 +583,8 @@ impl VaultClient {
 			Ok(_) => Ok(()),
 			Err(e) => {
 				match &e {
-					ClientError::ServerResponseError { code, content } => error!("{}: {:?}", code, content),
-					ClientError::ResponseParseError { source, content } => error!("{}: {:?}", source, content),
+					ClientError::ServerResponseError { code, content } => error!("PatchKVPair {}: {:?}", code, content),
+					ClientError::ResponseParseError { source, content } => error!("PatchKVPair {}: {:?}", source, content),
 					_ => error!("{}", &e),
 				}
 				Err(e.to_string())
@@ -590,8 +606,8 @@ impl VaultClient {
 			Ok(_) => Ok(()),
 			Err(e) => {
 				match &e {
-					ClientError::ServerResponseError { code, content } => error!("{}: {:?}", code, content),
-					ClientError::ResponseParseError { source, content } => error!("{}: {:?}", source, content),
+					ClientError::ServerResponseError { code, content } => error!("DeleteKVPair {}: {:?}", code, content),
+					ClientError::ResponseParseError { source, content } => error!("DeleteKVPair {}: {:?}", source, content),
 					_ => error!("{}", &e),
 				}
 				Err(e.to_string())
@@ -616,8 +632,8 @@ impl VaultClient {
 			Ok(r) => Ok(getActualResponse(r).unwrap()),
 			Err(e) => {
 				match &e {
-					ClientError::ServerResponseError { code, content } => error!("{}: {:?}", code, content),
-					ClientError::ResponseParseError { source, content } => error!("{}: {:?}", source, content),
+					ClientError::ServerResponseError { code, content } => error!("GenerateServiceCert {}: {:?}", code, content),
+					ClientError::ResponseParseError { source, content } => error!("GenerateServiceCert {}: {:?}", source, content),
 					_ => error!("{}", &e),
 				}
 				Err(e.to_string())
@@ -631,8 +647,8 @@ impl VaultClient {
 			Ok(_) => Ok(()),
 			Err(e) => {
 				match &e {
-					ClientError::ServerResponseError { code, content } => error!("{}: {:?}", code, content),
-					ClientError::ResponseParseError { source, content } => error!("{}: {:?}", source, content),
+					ClientError::ServerResponseError { code, content } => error!("RevokeServiceCert {}: {:?}", code, content),
+					ClientError::ResponseParseError { source, content } => error!("RevokeServiceCert {}: {:?}", source, content),
 					_ => error!("{}", &e),
 				}
 				Err(e.to_string())
@@ -647,8 +663,8 @@ impl VaultClient {
 			Ok(r) => Ok(getActualResponse(r).unwrap()),
 			Err(e) => {
 				match &e {
-					ClientError::ServerResponseError { code, content } => error!("{}: {:?}", code, content),
-					ClientError::ResponseParseError { source, content } => error!("{}: {:?}", source, content),
+					ClientError::ServerResponseError { code, content } => error!("Encrypt {}: {:?}", code, content),
+					ClientError::ResponseParseError { source, content } => error!("Encrypt {}: {:?}", source, content),
 					_ => error!("{}", &e),
 				}
 				Err(e.to_string())
@@ -663,8 +679,8 @@ impl VaultClient {
 			Ok(r) => Ok(getActualResponse(r).unwrap()),
 			Err(e) => {
 				match &e {
-					ClientError::ServerResponseError { code, content } => error!("{}: {:?}", code, content),
-					ClientError::ResponseParseError { source, content } => error!("{}: {:?}", source, content),
+					ClientError::ServerResponseError { code, content } => error!("Decrypt {}: {:?}", code, content),
+					ClientError::ResponseParseError { source, content } => error!("Decrypt {}: {:?}", source, content),
 					_ => error!("{}", &e),
 				}
 				Err(e.to_string())
@@ -677,14 +693,25 @@ impl VaultClient {
 	}
 	async fn renewToken(&self) -> Result<(), String> {
 		let renewReq = RenewTokenRequest::builder().build().unwrap();
-		let resp = renewReq.with_middleware(&self.atm).exec(&self.httpClient).await;
+		let resp = renewReq.with_middleware(&self.atm).exec(&self.httpClient).await.unwrap().wrap::<VaultResult<_>>();
 		//TODO: retry?
 		match resp {
-			Ok(_) => Ok(()),
+			Ok(r) => {
+				let authInfo = r.auth.unwrap();
+				let mut token = self.atm.token.try_lock();
+				if token.is_ok() {
+					let t = token.as_deref_mut();
+					if t.is_ok() {
+						*t.unwrap() = authInfo.client_token;
+						debug!("vault token renewed");
+					}
+				}
+				Ok(())
+			}
 			Err(e) => {
 				match &e {
-					ClientError::ServerResponseError { code, content } => error!("{}: {:?}", code, content),
-					ClientError::ResponseParseError { source, content } => error!("{}: {:?}", source, content),
+					ClientError::ServerResponseError { code, content } => error!("startRenewalTimer {}: {:?}", code, content),
+					ClientError::ResponseParseError { source, content } => error!("startRenewalTimer {}: {:?}", source, content),
 					_ => error!("{}", &e),
 				}
 				Err(e.to_string())
@@ -697,6 +724,7 @@ impl TokenRenewer {
 	pub fn StartRenewal(self: &Arc<Self>, token_ttl: u64) {
 		let self_clone = Arc::clone(self);
 		tokio::spawn(async move {
+			debug!("token renewer start. renewing tokes every {token_ttl} seconds");
 			loop {
 				tokio::time::sleep(Duration::from_secs(token_ttl)).await;
 				match self_clone.client.renewToken().await {

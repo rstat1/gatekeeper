@@ -30,7 +30,7 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use rustls_pki_types::{pem::PemObject, CertificateDer};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{collections::HashMap, future::Future, path::Path, pin::Pin, sync::Arc, time::Duration};
 use tokio::{
 	runtime::Handle,
 	sync::{
@@ -324,14 +324,16 @@ impl CertManagerSvc {
 		let certs = self.svcCertCache.read().await;
 		let c = certs.get(&serviceName).cloned();
 		drop(certs);
-		
+
 		c
 	}
 	pub fn GetExistingServiceCertBlocking(&self, serviceName: String) -> Option<ServiceCredentials> {
-		tokio::task::block_in_place(move || Handle::current().block_on(async move {
-			debug!("get creds...");
-			self.GetExistingServiceCert(serviceName).await
-		}))
+		tokio::task::block_in_place(move || {
+			Handle::current().block_on(async move {
+				debug!("get creds...");
+				self.GetExistingServiceCert(serviceName).await
+			})
+		})
 	}
 	pub async fn SignWithGatekeeperCert(&self, toSign: String) -> Result<String, String> {
 		match self.GetExistingServiceCert("gatekeeper".to_string()).await {
@@ -568,6 +570,16 @@ impl ExpirationChecker {
 						debug!("generate new cert for {}", &svcc.0);
 						match self.cmSvc.GenerateServiceCert(&svcc.0).await {
 							Ok(newCert) => {
+								if *svcc.0 == "gatekeeper".to_string() {
+									match std::fs::write("certs/gkcert.pem", format!("{}\n{}", &newCert.certificate, &newCert.private_key)) {
+										Ok(_) => {}
+										Err(e) => panic!("failed to write gk cert to disk: {}", e.to_string()),
+									}
+									match std::fs::write("certs/gkroot.pem", &newCert.ca_cert) {
+										Ok(_) => {}
+										Err(e) => panic!("failed to write gk cert to disk: {}", e.to_string()),
+									}
+								}
 								self.cmSvc.certUpdateChannel.send_replace((newCert, svcc.0.clone()));
 							}
 							Err(e) => {
