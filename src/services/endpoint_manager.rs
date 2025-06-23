@@ -194,7 +194,18 @@ impl EndpointManagerImpl {
 			Err(_) => Err(false),
 		}
 	}
+	pub async fn GetNSIDFromSvcID(&self, serviceID: &String) -> Option<String> {
+		let domainList = self.domains.read().await;
+		let nsList = domainList.clone();
+		drop(domainList);
+		for ns in nsList.iter() {
+			if ns.services.iter().find(|svcID| *svcID == serviceID).is_some() {
+				return Some(ns.id.clone());
+			}
+		}
 
+		None
+	}
 	pub fn IsRPCGatewayEnabled(&self, svcName: &String) -> bool {
 		let svcs = self.svcsList.try_lock();
 		match svcs {
@@ -365,12 +376,17 @@ impl EndpointManagerImpl {
 			Err(e) => error!("RemoveServiceEndpoint TLE: {:?}", e),
 		}
 	}
-	pub fn AddServiceToKnownList(&self, newSvc: &Service) {
-		let svcs = self.svcsList.try_lock();
+	pub async fn NewService(&self, newSvc: &Service, nsName: &String) {
+		let svcs = self.svcsList.try_lock();		
 		match svcs {
 			Ok(mut svcList) => {
-				if !svcList.contains(newSvc) {
+				if svcList.iter().find(|s| *s.name == *newSvc.name).is_none() {
+					debug!("hi!");
 					svcList.push(newSvc.clone());
+					
+					let mut nsList = self.domains.write().await;
+					nsList.iter_mut().find(|ns| &ns.base == nsName).unwrap().services.push(newSvc.id.clone());
+					drop(nsList);
 				}
 			}
 			Err(e) => error!("AddServiceToKnownList TLE: {:?}", e),

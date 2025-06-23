@@ -20,7 +20,8 @@ use tracing::error;
 
 use crate::{
 	services::v1::{Alias, Namespace, Service},
-	vault::VaultClient, SYSTEM_CONFIG,
+	vault::VaultClient,
+	SYSTEM_CONFIG,
 };
 
 pub struct DataStore {
@@ -95,13 +96,11 @@ impl DataStore {
 		self.retryableQuery(|| async {
 			let client = self.mongoClient.read().await;
 			let mut newSvcSession = client.start_session().await.unwrap();
-			// let mut newSvcSession = self.client.read().unwrap().start_session().await.unwrap();
-
 			let _ = newSvcSession.start_transaction().await;
 			match self.insertUnique("services", svc, doc! {"name": &svc.name}, Some(&mut newSvcSession)).await {
 				Ok(r) => {
 					if r {
-						self.addServiceToNamespace(&svc.name, parentDomain, &mut newSvcSession).await
+						self.addServiceToNamespace(&svc.id, parentDomain, &mut newSvcSession).await
 					} else {
 						Ok(false)
 					}
@@ -276,11 +275,23 @@ impl DataStore {
 		})
 		.await
 	}
-	pub async fn DeleteService(&self, id: &String) -> Result<bool, mongodb::error::Error> {
+	pub async fn DeleteService(&self, id: &String, parentNSID: &String) -> Result<bool, mongodb::error::Error> {
 		self.retryableQuery(|| async {
+			let client = self.mongoClient.read().await;
 			let servicesColl: Collection<Service> = self.mongoClient.read().await.database(&self.collectionName).collection("services");
-			match servicesColl.delete_one(doc! {"id": id}).await {
-				Ok(r) => Ok(r.deleted_count > 0),
+			let mut delSvcSession = client.start_session().await.unwrap();
+			let _ = delSvcSession.start_transaction().await;
+			match servicesColl.delete_one(doc! {"id": id}).session(&mut delSvcSession).await {
+				Ok(r) => {
+					if r.deleted_count > 0 {
+						match self.removeServiceFromNamespace(id, parentNSID, &mut delSvcSession).await {
+							Ok(r) => Ok(r),
+							Err(e) => Err(e),
+						}
+					} else {
+						return Ok(false);
+					}
+				}
 				Err(e) => Err(e),
 			}
 		})
@@ -295,12 +306,10 @@ impl DataStore {
 	pub fn WriteStringToRedisWithTTL(&self, key: &String, value: &String, ttl: u64) -> Result<bool, String> {
 		self.cache.WriteStringToRedisWithTTL(key, value, ttl)
 	}
-	async fn addServiceToNamespace(&self, serviceName: &String, domainName: &String, session: &mut ClientSession) -> Result<bool, mongodb::error::Error> {
-		//TODO: use retryable query.
-		// self.retryableQuery(|| async {
+	async fn addServiceToNamespace(&self, serviceID: &String, namespace: &String, session: &mut ClientSession) -> Result<bool, mongodb::error::Error> {
 		let coll: Collection<Namespace> = self.mongoClient.read().await.database(&self.collectionName).collection::<Namespace>("servicedomains");
 		match coll
-			.update_one(doc! {"base": domainName}, doc! {"$addToSet": doc!{"services": doc!{"$each": [serviceName]}}})
+			.update_one(doc! {"base": namespace}, doc! {"$addToSet": doc!{"services": doc!{"$each": [serviceID]}}})
 			.session(&mut *session)
 			.await
 		{
@@ -314,16 +323,31 @@ impl DataStore {
 			}
 			Err(e) => Err(e),
 		}
-		// }).await
+	}
+	async fn removeServiceFromNamespace(&self, serviceID: &String, domainID: &String, session: &mut ClientSession) -> Result<bool, mongodb::error::Error> {
+		let coll: Collection<Namespace> = self.mongoClient.read().await.database(&self.collectionName).collection::<Namespace>("servicedomains");
+		match coll
+			.update_one(doc! {"id": domainID}, doc! {"$pull": doc!{"services": doc!{"$in": [serviceID]}}})
+			.session(&mut *session)
+			.await
+		{
+			Ok(r) => {
+				if r.modified_count > 0 {
+					let _ = session.commit_transaction().await;
+					Ok(true)
+				} else {
+					Ok(false)
+				}
+			}
+			Err(e) => Err(e),
+		}
 	}
 	async fn reconnect(&self) -> Result<Client, mongodb::error::Error> {
 		let newCreds = self.vault.GetDBCredentials(self.dev).await.unwrap();
-
 		let mongoEP = format!(
 			"mongodb://{}:{}@{}/{}?directconnection=true&appName=gatekeeper&retryWrites=false",
 			&newCreds.username, &newCreds.password, self.serverEP, self.collectionName
 		);
-
 		Client::with_uri_str(mongoEP.clone()).await
 	}
 	async fn retryableQuery<ResultType, AsyncFn: Future<Output = Result<ResultType, mongodb::error::Error>>, F: Fn() -> AsyncFn>(&self, queryFn: F) -> Result<ResultType, mongodb::error::Error>
@@ -343,6 +367,7 @@ impl DataStore {
 						Err(e) => return Err::<ResultType, mongodb::error::Error>(e),
 					}
 				}
+				error!("{}", e.to_string());
 				Err(e)
 			}
 			Ok(r) => Ok(r),

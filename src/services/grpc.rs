@@ -133,11 +133,7 @@ impl ConfigService for GRPCServer {
 	async fn new_service(&self, request: Request<NewServiceRequest>) -> Result<Response<ServiceCredentials>, Status> {
 		let svc = request.get_ref();
 		match self.apiSvcImpl.NewService(svc.svc_details.as_ref().unwrap(), &svc.parent_namespace).await {
-			Ok(r) => {
-				self.svcRegistryImpl.AddServiceToKnownList(&svc.svc_details.as_ref().unwrap());
-
-				Ok(Response::new(r.1))
-			}
+			Ok(r) => Ok(Response::new(r.1)),
 			Err(e) => {
 				if e == "already exists" {
 					Err(Status::new(tonic::Code::AlreadyExists, format!("service already exists")))

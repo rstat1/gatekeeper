@@ -48,6 +48,7 @@ impl ConfigServiceImpl {
 				match self.db.NewService(&svc, parentDomain).await {
 					Ok(r) => {
 						if r {
+							self.epMgr.NewService(&svc, &parentDomain).await;
 							self.certStatusRegistry.Add(RegisteredCertificate { issuedFor: svc.name, certType: CertificateType::Endpoint }).await;
 							Ok((svc.id, svcCert))
 						} else {
@@ -156,22 +157,24 @@ impl ConfigServiceImpl {
 	}
 	pub async fn DeleteService(&self, id: &String) -> Result<bool, String> {
 		match self.epMgr.ServiceIdToName(id) {
-			Ok(name) => match self.db.DeleteService(id).await {
-				Ok(r) => {
-					if r {
-						match self.cmSvc.RevokeServiceCert(&name).await {
-							Ok(()) => {
-								self.epMgr.RemoveService(name);
-								return Ok(true);
+			Ok(name) => {
+				let nsID = self.epMgr.GetNSIDFromSvcID(id).await.unwrap();
+				match self.db.DeleteService(id, &nsID).await {
+					Ok(r) => {
+						if r {
+							match self.cmSvc.RevokeServiceCert(&name).await {
+								Ok(()) => {}
+								Err(e) => return Err(format!("DeleteService: RevokeServiceCert: {}", e)),
 							}
-							Err(e) => return Err(format!("DeleteService: RevokeServiceCert: {}",e)),
+							self.epMgr.RemoveService(name);
+							Ok(true)
+						} else {
+							return Ok(false);
 						}
-					} else {
-						return Ok(false);
 					}
+					Err(e) => Err(format!("DeleteService: {}", e)),
 				}
-				Err(e) => Err(format!("DeleteService: {}",e))
-			},
+			}
 			Err(_) => Err("failed to convert service name to ID".to_string()),
 		}
 	}
