@@ -16,9 +16,9 @@ use serde::Serialize;
 use serde_derive::Deserialize;
 
 use serde_json::Value;
-use std::{collections::HashMap, env, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 use tokio::{sync::Mutex, time::Duration};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use crate::{services::v1::ServiceCredentials, SYSTEM_CONFIG};
 
@@ -371,7 +371,6 @@ impl VaultClient {
 		match result {
 			Ok(r) => {
 				let authInfo = r.auth.unwrap();
-				debug!("{:?}", &authInfo);
 				let vault = Arc::new(Self { httpClient: httpC, atm: AddTokenMiddleware { token: Mutex::new(authInfo.client_token) }, dev });
 				if authInfo.renewable {
 					vault.startRenewalTimer(authInfo.lease_duration - 10).await;

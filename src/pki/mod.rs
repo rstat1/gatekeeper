@@ -30,7 +30,7 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use rustls_pki_types::{pem::PemObject, CertificateDer};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, future::Future, path::Path, pin::Pin, sync::Arc, time::Duration};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc, time::Duration};
 use tokio::{
 	runtime::Handle,
 	sync::{

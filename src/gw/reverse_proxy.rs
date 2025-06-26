@@ -184,15 +184,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 				let _ = h.insert_header("content-type", "text/html");
 				session.write_response_header(Box::new(h), true).await?;
 				session
-					.write_response_body(
-						Some(Bytes::from(String::into_bytes(generate_err_page(
-							"400".to_string(),
-							"Bad Request".to_string(),
-							"GRPC gateway functionality has been disabled for this service".to_string(),
-							"".to_string(),
-						)))),
-						true,
-					)
+					.write_response_body(Some(Bytes::from(String::into_bytes(not_found_error(format!("{}.{}", ctx.service, ctx.base))))), true)
 					.await?;
 				session.set_keepalive(None);
 

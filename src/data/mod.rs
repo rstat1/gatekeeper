@@ -26,7 +26,6 @@ use crate::{
 
 pub struct DataStore {
 	mongoClient: RwLock<Client>,
-	serverEP: String,
 	collectionName: String,
 	vault: Arc<VaultClient>,
 	cache: Arc<CacheService>,
@@ -81,7 +80,6 @@ impl DataStore {
 				mongoClient: RwLock::new(c),
 				collectionName: SYSTEM_CONFIG.collectionName.clone(),
 				vault,
-				serverEP: SYSTEM_CONFIG.collectionName.clone(),
 				cache: cache.clone(),
 				dev: SYSTEM_CONFIG.devMode.unwrap_or(false),
 			})),
@@ -346,7 +344,7 @@ impl DataStore {
 		let newCreds = self.vault.GetDBCredentials(self.dev).await.unwrap();
 		let mongoEP = format!(
 			"mongodb://{}:{}@{}/{}?directconnection=true&appName=gatekeeper&retryWrites=false",
-			&newCreds.username, &newCreds.password, self.serverEP, self.collectionName
+			&newCreds.username, &newCreds.password, SYSTEM_CONFIG.mongoEndpoint, SYSTEM_CONFIG.collectionName
 		);
 		Client::with_uri_str(mongoEP.clone()).await
 	}
@@ -356,18 +354,28 @@ impl DataStore {
 	{
 		match queryFn().await {
 			Err(e) => {
-				if matches!(e.kind.as_ref(), ErrorKind::Authentication { .. }) {
-					let _ = self.mongoClient.read().await.clone().shutdown();
-					match self.reconnect().await {
-						Ok(c) => {
-							let mut client = self.mongoClient.write().await;
-							*client = c;
-							return queryFn().await;
+				match e.kind.as_ref() {
+					ErrorKind::Command(cmd) => {
+						if cmd.code == 13 {
+							let c = self.mongoClient.read().await.clone().shutdown();
+							drop(c);
+							match self.reconnect().await {
+								Ok(c) => {
+									let mut client = self.mongoClient.write().await;
+									*client = c;
+									drop(client);
+									return queryFn().await;
+								}
+								Err(e) => {
+									error!("{:?}", e);
+									return Err::<ResultType, mongodb::error::Error>(e);
+								}
+							}
 						}
-						Err(e) => return Err::<ResultType, mongodb::error::Error>(e),
 					}
+					_ => {}
 				}
-				error!("{}", e.to_string());
+				error!("{:?}", e);
 				Err(e)
 			}
 			Ok(r) => Ok(r),
