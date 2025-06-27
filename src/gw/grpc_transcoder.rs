@@ -6,7 +6,7 @@
 */
 
 use async_trait::async_trait;
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use http::StatusCode;
 use pingora::modules::http::{HttpModule, HttpModuleBuilder, Module};
 use pingora_core::Result;
@@ -107,6 +107,9 @@ impl HttpModule for GRPCTranscoder {
 					.methods()
 					.find(|n| n.method_descriptor_proto().name.as_ref().unwrap() == self.method.as_str());
 				if let Some(method) = md {
+					self.currentBuffer.get_u8();
+					self.currentBuffer.get_u32();
+
 					match DynamicMessage::decode(method.output(), self.currentBuffer.as_ref()) {
 						Ok(msg) => {
 							let mut serializer = serde_json::Serializer::new(vec![]);

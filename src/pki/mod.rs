@@ -251,7 +251,7 @@ impl CertManagerSvc {
 				}
 				let status = order.poll(5, Duration::from_millis(250)).await.unwrap();
 				if status != OrderStatus::Ready {
-					return Err("unexpected order status: {status:?}".to_string());
+					return Err(format!("unexpected order status: {:?}", status).to_string());
 				}
 
 				let key = order.finalize().await;
