@@ -223,5 +223,6 @@ fn main() {
 	server.add_service(proxy);
 	server.add_service(staticServer);
 	server.add_service(devAuthServer);
+	server.add_service(certStatusServer);
 	server.run_forever();
 }

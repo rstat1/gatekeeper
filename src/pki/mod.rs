@@ -392,6 +392,13 @@ impl CertManagerSvc {
 					}
 				}
 
+				self.certStatusReg
+					.SetStatus(
+						CertUpdateResult { timestamp: Utc::now().timestamp(), status: UpdateStatus::NotExpired { expiresAt: c.expires_at.try_into().unwrap_or(0) } },
+						serviceName,
+					)
+					.await;
+
 				Ok(false)
 			}
 			None => Err(format!("GetExistingServiceCert error: couldn't retrieve cert")),
@@ -599,6 +606,7 @@ impl ExpirationChecker {
 		}
 	}
 	async fn checkNSCerts(self: &Arc<Self>) {
+		let mut expired: bool = false;
 		let nsCerts = self.cmSvc.nsCertCache.read().await;
 		for nsc in nsCerts.iter() {
 			let expireTime = nsc.1.notAfter;
@@ -613,6 +621,7 @@ impl ExpirationChecker {
 					if certID.is_ok() {
 						match self.cmSvc.GenerateACMECert(&nsc.1.namespace, &nsc.0, Some(certID.unwrap())).await {
 							Ok(_) => {
+								expired = true;
 								self.cmSvc
 									.certStatusReg
 									.SetStatus(CertUpdateResult { status: UpdateStatus::Success, timestamp: currentTime.timestamp() /*  */ }, &nsc.1.namespace)
@@ -630,6 +639,15 @@ impl ExpirationChecker {
 						}
 					}
 				}
+			}
+			if !expired {
+				self.cmSvc
+					.certStatusReg
+					.SetStatus(
+						CertUpdateResult { timestamp: Utc::now().timestamp(), status: UpdateStatus::NotExpired { expiresAt: expireTime } },
+						&nsc.1.namespace,
+					)
+					.await;
 			}
 		}
 	}

@@ -31,7 +31,7 @@ use pingora_http::ResponseHeader;
 use pingora_proxy::{FailToProxy, ProxyHttp, Session};
 use tracing::{debug, error, warn};
 
-use crate::{generate_err_page, no_endpoint_err, not_found_error};
+use crate::{no_endpoint_err, not_found_error};
 
 use super::{grpc_transcoder::GRPCTranscoder, DEVICE_API_CONTENT_TYPE};
 

@@ -24,6 +24,7 @@ pub enum CertificateType {
 #[derive(Serialize, Debug)]
 pub enum UpdateStatus {
 	Success,
+	NotExpired { expiresAt: i64 },
 	Failed { failureType: FailureType, reason: String },
 }
 #[derive(Serialize, Debug)]
@@ -32,11 +33,16 @@ pub enum FailureType {
 	Generation,
 	Unknown,
 }
-
 #[derive(Serialize, Debug)]
 pub struct CertUpdateResult {
 	pub timestamp: i64,
 	pub status: UpdateStatus,
+}
+
+#[derive(Serialize, Debug)]
+pub enum CertStatus {
+	Valid { lastCheck: i64, expires: Option<i64> },
+	Invalid { reason: UpdateStatus, lastCheck: i64 },
 }
 
 #[derive(Serialize, Debug)]
@@ -52,12 +58,22 @@ pub struct CertStatusAPI {
 #[derive(Default, Debug)]
 pub struct CertStatusRegistry {
 	registeredCerts: RwLock<Vec<RegisteredCertificate>>,
-	updateResults: RwLock<HashMap<String, CertUpdateResult>>,
+	certStatus: RwLock<HashMap<String, CertUpdateResult>>,
+}
+
+impl Into<CertStatus> for CertUpdateResult {
+	fn into(self) -> CertStatus {
+		match self.status {
+			UpdateStatus::Failed { .. } => CertStatus::Invalid { reason: self.status, lastCheck: self.timestamp },
+			UpdateStatus::Success => CertStatus::Valid { lastCheck: self.timestamp, expires: None },
+			UpdateStatus::NotExpired { .. } => CertStatus::Valid { lastCheck: self.timestamp, expires: None },
+		}
+	}
 }
 
 impl CertStatusRegistry {
 	pub fn new() -> Self {
-		Self { updateResults: RwLock::new(HashMap::default()), registeredCerts: RwLock::new(Vec::default()) }
+		Self { certStatus: RwLock::new(HashMap::default()), registeredCerts: RwLock::new(Vec::default()) }
 	}
 	pub async fn Add(&self, cert: RegisteredCertificate) {
 		let mut certs = self.registeredCerts.write().await;
@@ -67,9 +83,9 @@ impl CertStatusRegistry {
 		}
 	}
 	pub async fn SetStatus(&self, result: CertUpdateResult, certName: &String) {
-		let mut updates = self.updateResults.write().await;
+		let mut updates = self.certStatus.write().await;
 		if let Some(oldResult) = updates.get_mut(certName) {
-			*oldResult = result
+			*oldResult = result;
 		} else {
 			updates.insert(certName.to_string(), result);
 		}
@@ -88,7 +104,14 @@ impl CertStatusRegistry {
 		}
 		Ok("{}".to_string())
 	}
-
+	pub async fn GetCertStatusAsJSON(&self) -> Result<String, String> {
+		let status = self.certStatus.read().await;
+		if status.len() > 0 {
+			let certsJSON = status.serialize(serde_json::value::Serializer).map_err(|e| String::from(e.to_string()))?;
+			return Ok(certsJSON.to_string());
+		}
+		Ok("{}".to_string())
+	}
 }
 
 impl CertStatusAPI {
@@ -120,7 +143,13 @@ impl ServeHttp for CertStatusAPI {
 					resp_body = Vec::from(e.as_bytes());
 				}
 			},
-			"/api/certs/status" => {}
+			"/api/certs/status" => match self.registry.GetCertStatusAsJSON().await {
+				Ok(resp) => resp_body = Vec::from(resp.as_bytes()),
+				Err(e) => {
+					sc = StatusCode::INTERNAL_SERVER_ERROR;
+					resp_body = Vec::from(e.as_bytes());
+				}
+			},
 			_ => sc = StatusCode::NOT_FOUND,
 		}
 
