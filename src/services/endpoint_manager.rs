@@ -426,13 +426,13 @@ impl CertChecker {
 						match self_clone.client.GetRegisteredEndpoints(&newCert.1) {
 							Some(eps) => {
 								for rep in eps {
-									if rep.runningOnK8S == false {
-										debug!("got cert update for {}", &newCert.1);
-										let repName = rep.serviceName.clone();
-										let mut sc: ServiceCredentials = newCert.0.clone().into();
-										sc.id = Some(self_clone.client.ServiceNameToID(&repName).unwrap());
-										self_clone.SendNewCredsToEP(rep, &sc).await;
-									}
+									// if rep.runningOnK8S == false {
+									debug!("got cert update for {}", &newCert.1);
+									let repName = rep.serviceName.clone();
+									let mut sc: ServiceCredentials = newCert.0.clone().into();
+									sc.id = Some(self_clone.client.ServiceNameToID(&repName).unwrap());
+									self_clone.SendNewCredsToEP(rep, &sc).await;
+									// }
 								}
 							}
 							None => {}
