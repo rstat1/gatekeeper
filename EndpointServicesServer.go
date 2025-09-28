@@ -128,12 +128,14 @@ func (ess *endpointServicesServer) renewCert(w http.ResponseWriter, r *http.Requ
 		if err := protojson.Unmarshal(newCreds, &nsr); err == nil {
 			ess.handleCertRenew(nsr)
 			w.Write([]byte("ok"))
+			fmt.Println("handled cert renew")
 		} else {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
 			fmt.Println(newCreds)
 		}
 	} else {
+		fmt.Println(e.Error())
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(e.Error()))
 	}

@@ -92,6 +92,11 @@ func NewExternalDeviceClient(config ExternalDeviceClientConfig, gkc *GatekeeperC
 // client) if successful.
 func (edc *ExternalDeviceClient) Login() error {
 	var dar DeviceAuthRequest
+
+	if _, e := os.Stat(edc.clientName + ".key"); os.IsNotExist(e) {
+		return fmt.Errorf("missing key file: %s", edc.clientName+".key")
+	}
+
 	req, _ := http.NewRequest("GET", "https://"+edc.serviceURL+"/device/auth/begin", http.NoBody)
 	req.Header.Add("Content-Type", DEVICE_API_CONTENT_TYPE)
 	resp, err := http.DefaultClient.Do(req)
@@ -115,7 +120,7 @@ func (edc *ExternalDeviceClient) Login() error {
 			hash := sha512.Sum384([]byte(dar.Message))
 			sig, err := ecdsa.SignASN1(rand.Reader, privateKey, hash[:])
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to sign message hash: %s", err)
 			}
 			dacr, _ := json.Marshal(DeviceAuthClientResponse{
 				Message:   base64.StdEncoding.EncodeToString([]byte(dar.Message)),
@@ -124,7 +129,7 @@ func (edc *ExternalDeviceClient) Login() error {
 			})
 			r, err := http.DefaultClient.Post("https://"+edc.serviceURL+"/device/auth/finish", DEVICE_API_CONTENT_TYPE, bytes.NewReader(dacr))
 			if err != nil {
-				return err
+				return fmt.Errorf("auth finalizer failed: %s", err)
 			}
 			resp, _ := io.ReadAll(r.Body)
 			if r.StatusCode != 200 {
