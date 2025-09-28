@@ -60,10 +60,10 @@ type deviceRegistration struct {
 //   - config: An ExternalDeviceClientConfig struct that contains various settings for configuring
 //     the connection to Gatekeeper.
 func NewExternalDeviceClient(config ExternalDeviceClientConfig, gkc *GatekeeperClient) *ExternalDeviceClient {
-	svcName := strings.Split(config.ServiceURL, ".")[0]
-	deviceID := svcName + "-extdev-" + uuid.NewString()
+	deviceID := config.ClientName + "-extdev-" + uuid.NewString()
 
 	edc := &ExternalDeviceClient{
+		clientName: config.ClientName,
 		serviceURL: config.ServiceURL,
 		epsAddr:    config.EndpointServicesAddr,
 		epsServer:  newEndpointServiceServer(true, deviceID, gkc, config.CertificateRenewalHandler),
