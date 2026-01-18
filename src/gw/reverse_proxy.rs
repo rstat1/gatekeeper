@@ -277,7 +277,7 @@ impl ProxyHttp for crate::gw::ReverseProxy {
 		}
 
 		if ctx.isGRPCService {
-			svcNameForLookup = ctx.grpcService.clone();
+			svcNameForLookup = format!("{}/{}", ctx.grpcService, ctx.service);
 		} else {
 			svcNameForLookup = ctx.service.clone();
 		}

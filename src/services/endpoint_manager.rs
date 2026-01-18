@@ -67,7 +67,7 @@ pub struct EndpointManagerImpl {
 
 impl Display for RegisteredEndpoint {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		write!(f, "(addr: {}, hcr: {})", self.address, self.healthCheckRoute)
+		write!(f, "(addr: {}, hcr: {}, svc: {})", self.address, self.healthCheckRoute, self.serviceName)
 	}
 }
 
@@ -234,8 +234,8 @@ impl EndpointManagerImpl {
 
 		match epMap {
 			Ok(mut m) => {
-				if let Some(eps) = m.get_mut(&request.endpoint_name) {
-					debug!("added endpoint {} to service {} with hcr {}", &request.endpoint, &request.service_name, &request.health_check_route);
+				if let Some(eps) = m.get_mut(&format!("{}/{}", request.endpoint_name.clone(), request.service_name)) {
+					debug!("added endpoint {} with hcr {}", format!("{}/{}", request.endpoint_name.clone(), request.service_name), &request.health_check_route);
 					eps.push(RegisteredEndpoint {
 						serviceName: request.service_name.clone(),
 						address: request.endpoint.parse().unwrap(),
@@ -246,9 +246,9 @@ impl EndpointManagerImpl {
 						runningOnK8S: request.client_running_in_kubernetes,
 					});
 				} else {
-					debug!("added new endpoint {} at {} with hcr {}", &request.endpoint_name, &request.endpoint, &request.health_check_route);
+					debug!("added new endpoint {} at {} with hcr {}", format!("{}/{}", request.endpoint_name.clone(), request.service_name), &request.endpoint, &request.health_check_route);
 					m.insert(
-						request.endpoint_name.clone(),
+						format!("{}/{}", request.endpoint_name.clone(), request.service_name),
 						vec![RegisteredEndpoint {
 							serviceName: request.service_name.clone(),
 							address: request.endpoint.parse().unwrap(),
@@ -377,13 +377,13 @@ impl EndpointManagerImpl {
 		}
 	}
 	pub async fn NewService(&self, newSvc: &Service, nsName: &String) {
-		let svcs = self.svcsList.try_lock();		
+		let svcs = self.svcsList.try_lock();
 		match svcs {
 			Ok(mut svcList) => {
 				if svcList.iter().find(|s| *s.name == *newSvc.name).is_none() {
 					debug!("hi!");
 					svcList.push(newSvc.clone());
-					
+
 					let mut nsList = self.domains.write().await;
 					nsList.iter_mut().find(|ns| &ns.base == nsName).unwrap().services.push(newSvc.id.clone());
 					drop(nsList);
@@ -420,7 +420,8 @@ impl CertChecker {
 		let mut cert_chan: Receiver<(ServiceCredentials, String)> = self_clone.client.certUpdateChan.clone();
 		tokio::spawn(async move {
 			loop {
-				if cert_chan.changed().await.is_ok() {
+				let certChanged = cert_chan.changed().await;
+				if certChanged.is_ok() {
 					let newCert = cert_chan.borrow_and_update().clone();
 					if newCert.1 != "".to_string() {
 						match self_clone.client.GetRegisteredEndpoints(&newCert.1) {
@@ -437,7 +438,11 @@ impl CertChecker {
 							}
 							None => {}
 						}
+					} else {
+						error!("missing cert name");
 					}
+				} else {
+					error!("cert_chan not ok: {:?}", certChanged.err())
 				}
 			}
 		});
@@ -488,17 +493,19 @@ impl CertChecker {
 							.SetStatus(CertUpdateResult { timestamp: Utc::now().timestamp(), status: UpdateStatus::Success }, &rep.serviceName)
 							.await;
 					} else {
+						let resp = response_body.clone();
+						error!("cert propagation failed: {resp}");
 						self.client
 							.certStatusRegistry
 							.SetStatus(
-								CertUpdateResult { status: UpdateStatus::Failed { failureType: FailureType::Propagation, reason: response_body.clone() }, timestamp: Utc::now().timestamp() },
+								CertUpdateResult { status: UpdateStatus::Failed { failureType: FailureType::Propagation, reason: resp }, timestamp: Utc::now().timestamp() },
 								&rep.serviceName,
 							)
 							.await;
 					}
 				}
 			}
-			Err(_) => {}
+			Err(e) => error!("{}", e),
 		}
 	}
 }
@@ -543,7 +550,7 @@ impl HealthChecker {
 									match connector.get_http_session(&peer).await {
 										Ok((mut http, _reused)) => {
 											let mut new_request = RequestHeader::build("GET", hcr.path().as_bytes(), None).unwrap();
-											new_request.insert_header("Host", key.clone()).unwrap();
+											new_request.insert_header("Host", rep.serviceName.clone()).unwrap();
 											http.write_request_header(Box::new(new_request)).await.unwrap();
 											http.finish_body().await.unwrap();
 											http.read_response().await.unwrap();

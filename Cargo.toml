@@ -53,6 +53,7 @@ hyper-util = "0.1.14"
 tower = "0.5.2"
 rustls = "0.23.28"
 console-subscriber = { version = "0.4.1", optional = true }
+domain = { version = "0.11.1", features = ["resolv"]}
 
 [build-dependencies]
 tonic-build = "0.12.3"

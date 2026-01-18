@@ -10,11 +10,11 @@ use derive_builder::Builder;
 use rustify::{clients::reqwest::Client as HTTPClient, errors::ClientError, Client, Endpoint, MiddleWare};
 use rustify_derive::Endpoint;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use tracing::error;
 use std::{
 	net::{Ipv4Addr, Ipv6Addr},
 	sync::Arc,
 };
+use tracing::{debug, error, info};
 
 pub struct CloudflareAPIClient {
 	zoneID: String,
@@ -46,6 +46,24 @@ struct NewDNSRecord {
 	#[endpoint(skip)]
 	pub zoneID: String,
 	pub name: String,
+	pub ttl: i32,
+	#[serde(flatten)]
+	pub content: DNSRecordContent,
+}
+
+#[derive(Builder, Endpoint, Default, Serialize)]
+#[endpoint(
+	path = "/client/v4/zones/{self.zoneID}/dns_records/{self.dnsRecordID}",
+	method = "PATCH",
+	builder = "true",
+	response = "Response<DNSRecordResponse>"
+)]
+#[builder(setter(into, strip_option), default)]
+struct UpdateDNSRecord {
+	#[endpoint(skip)]
+	pub zoneID: String,
+	#[endpoint(skip)]
+	pub dnsRecordID: String,
 	pub ttl: i32,
 	#[serde(flatten)]
 	pub content: DNSRecordContent,
@@ -144,7 +162,7 @@ impl CloudflareAPIClient {
 			.zoneID(self.zoneID.clone())
 			.name(recordName)
 			.content(DNSRecordContent::TXT { content, comment: comment.to_string() })
-			.ttl(300)
+			.ttl(60)
 			.build()
 			.unwrap();
 		match newDNSReq.with_middleware(&self.atm).exec(&self.httpClient).await.unwrap().wrap::<Response<DNSRecordResponse>>() {
@@ -152,9 +170,29 @@ impl CloudflareAPIClient {
 				if r.errors.len() > 0 {
 					return Err(format!("CreateNewTXTRecord {:?}", r.errors));
 				}
+				debug!("new txt record created: result = {:?}", r.result);
 				Ok(r.result.id)
 			}
 			Err(err) => Err(format!("CreateNewTXTRecord: {}", err.to_string())),
+		}
+	}
+	pub async fn UpdateTXTRecord(&self, recordID: &String, content: String, comment: &str) -> Result<String, String> {
+		let newDNSReq = UpdateDNSRecord::builder()
+			.zoneID(self.zoneID.clone())
+			.dnsRecordID(recordID)
+			.content(DNSRecordContent::TXT { content, comment: comment.to_string() })
+			.ttl(60)
+			.build()
+			.unwrap();
+		match newDNSReq.with_middleware(&self.atm).exec(&self.httpClient).await.unwrap().wrap::<Response<DNSRecordResponse>>() {
+			Ok(r) => {
+				if r.errors.len() > 0 {
+					return Err(format!("UpdateTXTRecord {:?}", r.errors));
+				}
+				debug!("updated txt record created: result = {:?}", r.result);
+				Ok(r.result.id)
+			}
+			Err(err) => Err(format!("UpdateTXTRecord: {}", err.to_string())),
 		}
 	}
 	pub async fn DeleteDNSRecord(&self, recordID: &String) -> Result<(), String> {
@@ -166,11 +204,14 @@ impl CloudflareAPIClient {
 			.unwrap()
 			.wrap::<Response<DeleteDNSRecordResponse>>()
 		{
-			Ok(_) => Ok(()),
+			Ok(_) => {
+				info!("Deleted dns record successfully!");
+				Ok(())
+			}
 			Err(e) => {
 				error!("DeleteDNSRecord: {}", e.to_string());
 				Err(format!("DeleteDNSRecord: {}", e.to_string()))
-			},
+			}
 		}
 	}
 }

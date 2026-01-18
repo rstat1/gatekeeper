@@ -3,8 +3,6 @@ package main
 import (
 	"edc_helper/common"
 	"encoding/json"
-	"errors"
-	"flag"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,23 +12,13 @@ import (
 )
 
 type config struct {
+	ServiceName    string `json:"serviceName"`
 	ServerEndpoint string `json:"serverEndpoint"`
 }
 
 func main() {
 	var clientConfig config
 	common.CommonProcessInit(false, false)
-
-	svcName := flag.String("clientProcessName", "", "set to the name of the process connecting to gatekeeper. Cannot be null")
-	flag.Parse()
-
-	if *svcName == "" {
-		panic(errors.New("clientProcessName MUST BE SET"))
-	}
-
-	if _, e := os.Stat(*svcName); os.IsNotExist(e) {
-		panic(errors.New("clientProcessName MUST BE SET TO SOMETHING THAT ACTUALLY EXISTS"))
-	}
 
 	confFile, err := os.ReadFile("client_config.json")
 	if err != nil {
@@ -39,20 +27,26 @@ func main() {
 	json.Unmarshal(confFile, &clientConfig)
 
 	edc := sdk.NewExternalDeviceClient(sdk.ExternalDeviceClientConfig{
-		ClientName:           *svcName,
+		ClientName:           clientConfig.ServiceName,
 		ServiceURL:           clientConfig.ServerEndpoint,
 		EndpointServicesAddr: common.GetOutboundIP() + ":13337",
 		CertificateRenewalHandler: func(sc v1.ServiceCredentials) {
 			if e := os.WriteFile("gkroot.crt", []byte(sc.CaCert), 0o600); e != nil {
 				common.LogWarn("err", e, "failed to write new root")
+			} else {
+				common.LogInfo("", "", "wrote new root cert")
 			}
 
-			if e := os.WriteFile(*svcName+".crt", []byte(sc.Certificate), 0o600); e != nil {
+			if e := os.WriteFile(clientConfig.ServiceName+".crt", []byte(sc.Certificate), 0o600); e != nil {
 				common.LogWarn("err", e, "failed to write new cert")
+			} else {
+				common.LogInfo("", "", "wrote new client cert")
 			}
 
-			if e := os.WriteFile(*svcName+".key", []byte(sc.PrivateKey), 0o600); e != nil {
+			if e := os.WriteFile(clientConfig.ServiceName+".key", []byte(sc.PrivateKey), 0o600); e != nil {
 				common.LogWarn("err", e, "failed to write new private key")
+			} else {
+				common.LogInfo("", "", "wrote new client key")
 			}
 		},
 	}, nil)
