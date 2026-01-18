@@ -17,6 +17,16 @@ use crate::{
 };
 use base64::{alphabet, engine, engine::general_purpose, Engine};
 use chrono::Utc;
+use domain::{
+	base::{iana::Class, Rtype},
+	resolv::StubResolver,
+};
+use domain::{
+	base::{name::Name},
+	rdata::Txt,
+	resolv::stub::conf::{ResolvConf, ServerConf},
+};
+
 use http_body_util::{BodyExt, Full};
 use instant_acme::{
 	Account, AccountCredentials, AuthorizationStatus, BytesResponse, CertificateIdentifier, ChallengeType, HttpClient, Identifier, NewAccount, NewOrder, OrderStatus, RevocationReason,
@@ -30,7 +40,15 @@ use rand::{rngs::StdRng, Rng, SeedableRng};
 use rustls_pki_types::{pem::PemObject, CertificateDer};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{
+	collections::HashMap,
+	future::Future,
+	net::{IpAddr, Ipv4Addr, SocketAddr},
+	pin::Pin,
+	str::FromStr,
+	sync::Arc,
+	time::Duration,
+};
 use tokio::{
 	runtime::Handle,
 	sync::{
@@ -205,9 +223,10 @@ impl CertManagerSvc {
 			Err(e) => Err(e),
 		}
 	}
-	pub async fn GenerateACMECert(&self, namespace: &String, nsID: &String, certID: Option<CertificateIdentifier<'_>>) -> Result<bool, String> {
+	pub async fn GenerateACMECert(&self, namespace: &String, nsID: &String, certID: &Option<CertificateIdentifier<'_>>) -> Result<bool, String> {
 		let renewTime: i64;
 		let privateKey: String;
+		let mut alreadySetTXT: bool = false;
 		let mut ids = Vec::default();
 		let mut dnsRecordID: String = String::default();
 
@@ -220,11 +239,9 @@ impl CertManagerSvc {
 
 		ids.push(Identifier::Dns(namespace.to_string()));
 		ids.push(Identifier::Dns(format!("*.{namespace}")));
-		let mut newOrder = NewOrder::new(ids.as_slice());
+		let newOrder = NewOrder::new(ids.as_slice());
 
-		if certID.is_some() {
-			newOrder = newOrder.replaces(certID.unwrap());
-		}
+		//new(ResolverConfig::default(), ResolverOpts::default(), TokioConnectionProvider::default());
 
 		match account.new_order(&newOrder).await {
 			Ok(mut order) => {
@@ -239,32 +256,66 @@ impl CertManagerSvc {
 
 					let mut challenge = authz.challenge(ChallengeType::Dns01).ok_or_else(|| "no dns01 challenge found")?;
 					let txtRecordNS = format!("_acme-challenge.{}", namespace);
-					dnsRecordID = self.cfAPI.CreateNewTXTRecord(&txtRecordNS, challenge.key_authorization().dns_value(), "Created by Gatekeeper").await?;
-					sleep(Duration::from_secs(10)).await;
-					info!("that was a good nap, resuming cert request process...");
-					match challenge.set_ready().await {
-						Ok(_) => {}
+					debug!("{}", challenge.key_authorization().dns_value());
+					if dnsRecordID != "" && alreadySetTXT {
+						debug!("update existing record...");
+						self.cfAPI.UpdateTXTRecord(&dnsRecordID, challenge.key_authorization().dns_value(), "Created by Gatekeeper").await?;
+					} else {
+						dnsRecordID = self.cfAPI.CreateNewTXTRecord(&txtRecordNS, challenge.key_authorization().dns_value(), "Created by Gatekeeper").await?;
+					}
+					match self.waitForCorrectTXTRecord(&namespace, &challenge.key_authorization().dns_value()).await {
+						Ok(()) => {
+							alreadySetTXT = true;
+							info!("that was a good nap, resuming cert request process...");
+							match challenge.set_ready().await {
+								Ok(_) => {}
+								Err(e) => {
+									if dnsRecordID != "" {
+										self.cfAPI.DeleteDNSRecord(&dnsRecordID).await.unwrap();
+									}
+									return Err(e.to_string());
+								}
+							}
+						}
 						Err(e) => {
-							return Err(e.to_string());
+							if dnsRecordID != "" {
+								self.cfAPI.DeleteDNSRecord(&dnsRecordID).await.unwrap();
+							}
+							return Err(e);
 						}
 					}
 				}
+
 				let status = order.poll(5, Duration::from_millis(250)).await.unwrap();
-				if status != OrderStatus::Ready {
-					return Err(format!("unexpected order status: {:?}", status).to_string());
+				if status == OrderStatus::Invalid {
+					if dnsRecordID != "" {
+						self.cfAPI.DeleteDNSRecord(&dnsRecordID).await.unwrap();
+					}
+					return Err(format!("unexpected order status: {:?}, details: {:?}", status, order.state()));
 				}
 
-				let key = order.finalize().await;
-				if key.is_ok() {
-					privateKey = key.unwrap();
-				} else {
-					return Err(key.unwrap_err().to_string());
+				match order.finalize().await {
+					Ok(key) => privateKey = key,
+					Err(e) => {
+						if dnsRecordID != "" {
+							self.cfAPI.DeleteDNSRecord(&dnsRecordID).await.unwrap();
+						}
+						return Err(e.to_string());
+					}
 				}
 
 				let certChain = loop {
-					match order.certificate().await.unwrap() {
-						Some(cert_chain_pem) => break cert_chain_pem,
-						None => sleep(Duration::from_secs(1)).await,
+					match order.certificate().await {
+						Ok(v) => match v {
+							Some(cert_chain_pem) => break cert_chain_pem,
+							None => sleep(Duration::from_secs(1)).await,
+						},
+						Err(e) => {
+							if dnsRecordID != "" {
+								self.cfAPI.DeleteDNSRecord(&dnsRecordID).await.unwrap();
+							}
+							return Err(e.to_string());
+						}
 					}
 				};
 
@@ -277,15 +328,26 @@ impl CertManagerSvc {
 							debug!("{:?}", ri);
 							renewTime = StdRng::from_os_rng().random_range(ri.suggested_window.start.unix_timestamp()..=ri.suggested_window.end.unix_timestamp());
 						}
-						Err(e) => return Err(e.to_string()),
+						Err(e) => {
+							if dnsRecordID != "" {
+								self.cfAPI.DeleteDNSRecord(&dnsRecordID).await.unwrap();
+							}
+							return Err(e.to_string());
+						}
 					}
 				} else {
+					if dnsRecordID != "" {
+						self.cfAPI.DeleteDNSRecord(&dnsRecordID).await.unwrap();
+					}
 					return Err(certID.unwrap_err().to_string());
 				}
 
 				let newCert = NSCertificate { certChain, privateKey, notAfter: renewTime, issuingCA, namespace: namespace.to_string() };
 				let r = self.vault.WriteStructToKV(format!("ns-certs/{}", nsID).as_str(), "gatekeeper", &newCert).await;
 				if r.is_err() {
+					if dnsRecordID != "" {
+						self.cfAPI.DeleteDNSRecord(&dnsRecordID).await.unwrap();
+					}
 					return Err(r.unwrap_err());
 				}
 				let mut certCache = self.nsCertCache.write().await;
@@ -297,7 +359,7 @@ impl CertManagerSvc {
 				} else {
 					certCache.insert(namespace.to_string(), newCert);
 					self.certStatusReg
-						.Add(RegisteredCertificate { issuedFor: namespace.to_string(), certType: CertificateType::Endpoint })
+						.Add(RegisteredCertificate { issuedFor: namespace.to_string(), certType: CertificateType::Namespace })
 						.await;
 				}
 				drop(certCache);
@@ -306,6 +368,7 @@ impl CertManagerSvc {
 					self.cfAPI.DeleteDNSRecord(&dnsRecordID).await?;
 					debug!("cleaned up dns records");
 				}
+				info!("cert retrieval for {namespace} successful!");
 			}
 			Err(e) => return Err(format!("GenerateACMECert(order): {}", e)),
 		}
@@ -466,6 +529,9 @@ impl CertManagerSvc {
 			}
 		}
 	}
+	pub async fn SetCertStatus(&self, result: CertUpdateResult, certName: &String) {
+		self.certStatusReg.SetStatus(result, certName).await
+	}
 	async fn getACMEAccount(&self) -> Result<(Account, String), String> {
 		let useGTS = StdRng::from_os_rng().random_ratio(1, 2);
 		let (ca, credsPath) = if self.devMode {
@@ -548,6 +614,48 @@ impl CertManagerSvc {
 		let hc = Arc::new(ExpirationChecker { cmSvc: Arc::clone(&self) });
 		hc.Start(checkIntervalSecs);
 	}
+	async fn waitForCorrectTXTRecord(&self, ns: &String, txtValue: &String) -> Result<(), String> {
+		let mut attempts: i32 = 0;
+
+		let mut conf = ResolvConf::new();
+		let cloudflare_ip = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53);
+		conf.servers = vec![ServerConf::new(cloudflare_ip.into(), domain::resolv::stub::conf::Transport::UdpTcp)];
+		conf.finalize();
+		let r = StubResolver::from_conf(conf);
+		let name = &Name::<Vec<u8>>::from_str(format!("_acme-challenge.{ns}.").as_str()).unwrap();
+
+		loop {
+			if attempts == 5 {
+				return Err("TXT record not found, stopping at 5 attempts to find it.".to_string());
+			}
+
+			match r.query((name, Rtype::TXT, Class::IN)).await {
+				Ok(r) => {
+					let contains_answer = r.contains_answer::<Txt<_>>();
+					if contains_answer {
+						for record in r.answer().unwrap().limit_to::<Txt<_>>() {
+							if let Ok(txtRecord) = record {
+								for item in txtRecord.data().iter() {
+									let text = String::from_utf8_lossy(item);
+									debug!("Found TXT Record: {text}, wanted TXT record {txtValue}");
+									if text == *txtValue {
+										return Ok(());
+									}
+								}
+							}
+						}
+					}
+				}
+				Err(e) => {
+					error!("{e}");
+					return Err(e.to_string());
+				}
+			}
+
+			attempts += 1;
+			sleep(Duration::from_secs(20)).await;
+		}
+	}
 }
 impl ExpirationChecker {
 	pub fn Start(self: &Arc<Self>, checkIntervalSecs: u64) {
@@ -558,7 +666,7 @@ impl ExpirationChecker {
 				if !self_clone.cmSvc.IsCertCacheEmpty().await {
 					self_clone.checkNSCerts().await;
 					self_clone.checkCredentialCerts().await;
-					info!("Ok, sleep time. Hey google set an alarm for {} minutes", checkIntervalSecs / 60);
+					info!("Ok, sleep time. Hey google set a timer for {} minutes", checkIntervalSecs / 60);
 				} else {
 					warn!("cert cache empty");
 				}
@@ -605,8 +713,34 @@ impl ExpirationChecker {
 			}
 		}
 	}
+	async fn renewNSCert(self: &Arc<Self>, namespace: &String, nsID: &String, certID: Option<CertificateIdentifier<'_>>) -> Result<(), String> {
+		let mut attempts: i32 = 0;
+		let mut lastDelay: u64 = 1;
+		loop {
+			if attempts == 5 {
+				self.cmSvc
+					.SetCertStatus(
+						CertUpdateResult {
+							status: UpdateStatus::Failed { failureType: FailureType::ACMEFailure, reason: format!("failed to accquire certificate for NS {} after {} attempts", namespace, attempts) },
+							timestamp: chrono::Utc::now().timestamp(),
+						},
+						namespace,
+					)
+					.await;
+				return Err(format!("failed to accquire certificate for ns {}", namespace));
+			}
+			let r = self.cmSvc.GenerateACMECert(namespace, nsID, &certID).await;
+			if r.is_err() {
+				error!("failed to accquire certificate for ns {}: {}, trying again in {} seconds", namespace, r.unwrap_err(), lastDelay);
+				tokio::time::sleep(core::time::Duration::from_secs(lastDelay)).await;
+				attempts += 1;
+				lastDelay *= 2;
+			} else {
+				return Ok(());
+			}
+		}
+	}
 	async fn checkNSCerts(self: &Arc<Self>) {
-		let mut expired: bool = false;
 		let nsCerts = self.cmSvc.nsCertCache.read().await;
 		for nsc in nsCerts.iter() {
 			let expireTime = nsc.1.notAfter;
@@ -619,15 +753,15 @@ impl ExpirationChecker {
 					let certDer: Vec<CertificateDer<'static>> = CertificateDer::pem_slice_iter(nsc.1.certChain.as_bytes()).map(|result| result.unwrap()).collect();
 					let certID = CertificateIdentifier::try_from(certDer.first().unwrap());
 					if certID.is_ok() {
-						match self.cmSvc.GenerateACMECert(&nsc.1.namespace, &nsc.0, Some(certID.unwrap())).await {
+						match self.renewNSCert(&nsc.1.namespace, &nsc.0, Some(certID.unwrap())).await {
 							Ok(_) => {
-								expired = true;
 								self.cmSvc
 									.certStatusReg
 									.SetStatus(CertUpdateResult { status: UpdateStatus::Success, timestamp: currentTime.timestamp() /*  */ }, &nsc.1.namespace)
 									.await;
 							}
 							Err(e) => {
+								error!("error occured renewing NS cert: {}", e);
 								self.cmSvc
 									.certStatusReg
 									.SetStatus(
@@ -638,16 +772,15 @@ impl ExpirationChecker {
 							}
 						}
 					}
+				} else {
+					self.cmSvc
+						.certStatusReg
+						.SetStatus(
+							CertUpdateResult { timestamp: Utc::now().timestamp(), status: UpdateStatus::NotExpired { expiresAt: expireTime } },
+							&nsc.1.namespace,
+						)
+						.await;
 				}
-			}
-			if !expired {
-				self.cmSvc
-					.certStatusReg
-					.SetStatus(
-						CertUpdateResult { timestamp: Utc::now().timestamp(), status: UpdateStatus::NotExpired { expiresAt: expireTime } },
-						&nsc.1.namespace,
-					)
-					.await;
 			}
 		}
 	}

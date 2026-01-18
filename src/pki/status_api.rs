@@ -31,6 +31,7 @@ pub enum UpdateStatus {
 pub enum FailureType {
 	Propagation,
 	Generation,
+	ACMEFailure,
 	Unknown,
 }
 #[derive(Serialize, Debug)]

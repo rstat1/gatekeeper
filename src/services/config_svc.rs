@@ -12,7 +12,7 @@ use super::v1::*;
 use crate::{
 	data::DataStore,
 	pki::{
-		status_api::{CertStatusRegistry, CertificateType, RegisteredCertificate},
+		status_api::{CertStatusRegistry, CertUpdateResult, CertificateType, FailureType, RegisteredCertificate, UpdateStatus},
 		CertManagerSvc,
 	},
 	services::{
@@ -72,10 +72,31 @@ impl ConfigServiceImpl {
 					if domain.gatekeeper_managed_certs {
 						let cert_mgr = self.cmSvc.clone();
 						tokio::spawn(async move {
-							let r = cert_mgr.GenerateACMECert(&domain.base, &domain_id, None).await;
-							if r.is_err() {
-								error!("{}", r.unwrap_err());
-							} else {
+							let mut attempts: i32 = 0;
+							let mut lastDelay: u64 = 1;
+							loop {
+								if attempts == 5 {
+									error!("failed to accquire certificate for ns {}", domain.base);
+									cert_mgr
+										.SetCertStatus(
+											CertUpdateResult {
+												status: UpdateStatus::Failed { failureType: FailureType::ACMEFailure, reason: format!("failed to accquire certificate for ns {}", domain.base) },
+												timestamp: chrono::Utc::now().timestamp(),
+											},
+											&domain.base,
+										)
+										.await;
+									break;
+								}
+								let r = cert_mgr.GenerateACMECert(&domain.base, &domain_id, &None).await;
+								if r.is_err() {
+									error!("failed to accquire certificate for ns {}: {}, trying again in {} seconds", domain.base, r.unwrap_err(), lastDelay);
+									attempts += 1;
+									tokio::time::sleep(core::time::Duration::from_secs(lastDelay)).await;
+									lastDelay *= 2;
+								} else {
+									break;
+								}
 							}
 						});
 					}
