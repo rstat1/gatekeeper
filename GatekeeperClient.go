@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
 	cs "go.alargerobot.dev/gatekeeper/sdk/rpc/config/v1"
 	ep "go.alargerobot.dev/gatekeeper/sdk/rpc/endpoint_manager/v1"
@@ -115,6 +116,10 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 		},
 	}
 
+	if config.ClientIsRunningOnKubernetes {
+		gkc.credsFileWatcher()
+	}
+	
 	clientTLSCreds, err := advancedtls.NewClientCreds(advTLSOpts)
 
 	if err != nil {
@@ -187,7 +192,7 @@ func (gc *GatekeeperClient) registerEPInternal(serviceName, endpointName, addres
 	})
 	return e
 }
-func (gc *GatekeeperClient) logInfo(extraKey string, extraValue interface{}, entry interface{}) {
+func (gc *GatekeeperClient) logInfo(extraKey string, extraValue any, entry any) {
 	pc, _, line, _ := runtime.Caller(1)
 	funcObj := runtime.FuncForPC(pc)
 	runtimeFunc := regexp.MustCompile(`^.*\.(.*)$`)
@@ -199,7 +204,7 @@ func (gc *GatekeeperClient) logInfo(extraKey string, extraValue interface{}, ent
 		gc.logger.WithFields(logrus.Fields{"func": name, "line": line, "originator": "gatekeeper-sdk"}).Infoln(entry)
 	}
 }
-func (gc *GatekeeperClient) logWarn(extraKey string, extraValue interface{}, entry interface{}) {
+func (gc *GatekeeperClient) logWarn(extraKey string, extraValue any, entry any) {
 	pc, _, line, _ := runtime.Caller(1)
 	funcObj := runtime.FuncForPC(pc)
 	runtimeFunc := regexp.MustCompile(`^.*\.(.*)$`)
@@ -244,6 +249,60 @@ func (gc *GatekeeperClient) newCredsReceievedFromGK(credentials cs.ServiceCreden
 	gc.credentials = credentials
 	gc.config.CredentialsRenewedHandler()
 }
+
+func (gc *GatekeeperClient) credsFileWatcher() {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		gc.logger.Fatalln(err)
+	}
+	defer watcher.Close()
+	err = watcher.Add(os.Getenv("CREDENTIALS_FILE_PATH"))
+	if err != nil {
+		gc.logger.Fatalln(err)
+		return
+	}
+	go func() {
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
+					gc.renewCredentials()
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				gc.logger.Fatalln(err)
+			}
+		}
+	}()
+
+}
+
+func (gc *GatekeeperClient) renewCredentials() {
+	if path, set := os.LookupEnv("CREDENTIALS_FILE_PATH"); set {
+		creds, e := os.ReadFile(path)
+		if e != nil {
+			panic(e)
+		}
+		credsStr := string(creds)
+		creds, e = base64.StdEncoding.DecodeString(credsStr[6:])
+		if e != nil {
+			panic(e)
+		}
+		e = protojson.Unmarshal(creds, &gc.credentials)
+		if e != nil {
+			panic(e)
+		}
+		gc.config.CredentialsRenewedHandler()
+	} else {
+		gc.logWarn("", "", "missing credentials file")
+	}
+}
+
 func (gc *GatekeeperClient) KeyMaterial(ctx context.Context) (*certprovider.KeyMaterial, error) {
 	c, err := tls.X509KeyPair([]byte(gc.credentials.Certificate), []byte(gc.credentials.PrivateKey))
 
