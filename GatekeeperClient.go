@@ -234,20 +234,17 @@ func (gc *GatekeeperClient) logError(extra string, err error) error {
 }
 
 func (gc *GatekeeperClient) newCredsReceievedFromGK(credentials cs.ServiceCredentials) {
-	if gc.config.ClientIsRunningOnKubernetes {
-		err := ForceExternalSecretSync(gc.config.ServiceName)
-		if err != nil {
-			gc.logWarn("action", "ForceExternalSecretSync", err)
-		}
-	} else {
+	if !gc.config.ClientIsRunningOnKubernetes {
 		newCreds, _ := protojson.Marshal(&credentials)
 		e := os.WriteFile("gatekeeper-credentials.json", newCreds, 0o600)
 		if e != nil {
 			panic(e)
 		}
 	}
-	gc.credentials = credentials
-	gc.config.CredentialsRenewedHandler()
+	if credentials.ExpiresAt > gc.credentials.ExpiresAt {
+		gc.credentials = credentials
+		gc.config.CredentialsRenewedHandler()
+	}
 }
 
 func (gc *GatekeeperClient) credsFileWatcher() {
@@ -283,6 +280,7 @@ func (gc *GatekeeperClient) credsFileWatcher() {
 }
 
 func (gc *GatekeeperClient) renewCredentials() {
+	var newCreds *cs.ServiceCredentials
 	if path, set := os.LookupEnv("CREDENTIALS_FILE_PATH"); set {
 		creds, e := os.ReadFile(path)
 		if e != nil {
@@ -293,11 +291,15 @@ func (gc *GatekeeperClient) renewCredentials() {
 		if e != nil {
 			panic(e)
 		}
-		e = protojson.Unmarshal(creds, &gc.credentials)
+		e = protojson.Unmarshal(creds, newCreds)
 		if e != nil {
 			panic(e)
 		}
-		gc.config.CredentialsRenewedHandler()
+
+		if newCreds.ExpiresAt > gc.credentials.ExpiresAt {
+			gc.config.CredentialsRenewedHandler()
+		}
+
 	} else {
 		gc.logWarn("", "", "missing credentials file")
 	}
