@@ -354,6 +354,17 @@ impl EndpointManagerImpl {
 						return Some(eps.to_vec());
 					}
 				}
+				//slow path
+				for epName in m.keys() {
+					if epName.contains(name) {
+						if let Some(eps) = m.get(epName) {
+							if eps.len() > 0 {
+								return Some(eps.to_vec());
+							}
+						}
+					}
+				}
+
 				return None;
 			}
 			Err(e) => {
@@ -424,19 +435,19 @@ impl CertChecker {
 				if certChanged.is_ok() {
 					let newCert = cert_chan.borrow_and_update().clone();
 					if newCert.1 != "".to_string() {
+						debug!("received cert update message for {}", newCert.1);
 						match self_clone.client.GetRegisteredEndpoints(&newCert.1) {
 							Some(eps) => {
 								for rep in eps {
-									// if rep.runningOnK8S == false {
-									debug!("got cert update for {}", &newCert.1);
 									let repName = rep.serviceName.clone();
 									let mut sc: ServiceCredentials = newCert.0.clone().into();
 									sc.id = Some(self_clone.client.ServiceNameToID(&repName).unwrap());
 									self_clone.SendNewCredsToEP(rep, &sc).await;
-									// }
 								}
 							}
-							None => {}
+							None => {
+								debug!("no registered endpoints for {}", newCert.1)
+							}
 						}
 					} else {
 						error!("missing cert name");
