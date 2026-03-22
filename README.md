@@ -57,4 +57,4 @@ Your vault instnace MUST have the following:
   * A ```KV``` secrets engine configured under the ```gatekeeper``` path for storing various types of credentials and API tokens. This is where the cloudflare token will live.
 
 ## About that SDK branch
-The Gatekeepr SDK (the means through which a service is connected to Gatekeeper) exists on a separate branch because Go's module system only recently picked up the ability to grab modules from a sub folder of a project, so the quickest solution at the time of its creation was to put it on its own branch that contained only the SDK. I think this problem has been solved by now but I haven't looked to be sure, so the SDK branch remains.
+The Gatekeeper SDK (the means through which a service is connected to Gatekeeper) exists on a separate branch because Go's module system only recently picked up the ability to grab modules from a sub folder of a project, so the quickest solution at the time of its creation was to put it on its own branch that contained only the SDK. I think this problem has been solved by now but I haven't looked to be sure, so the SDK branch remains.
