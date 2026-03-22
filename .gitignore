@@ -4,3 +4,4 @@ gatekeeper_config
 **/certs/**
 dbg-cmds
 **/descriptors/**
+**/gatekeeper-credentials.json

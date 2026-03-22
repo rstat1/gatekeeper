@@ -354,7 +354,13 @@ impl CertManagerSvc {
 
 				if certCache.contains_key(&namespace.to_string()) {
 					if let Some(existing) = certCache.get_mut(namespace) {
+						let notAfterTime = newCert.notAfter;
 						*existing = newCert;
+						self.certStatusReg
+							.SetStatus(CertUpdateResult { status: UpdateStatus::NotExpired { expiresAt: notAfterTime }, timestamp: chrono::Utc::now().timestamp() }, namespace)
+							.await;						
+					} else {
+						warn!("failed to update cert cache for {}", namespace)
 					}
 				} else {
 					certCache.insert(namespace.to_string(), newCert);
@@ -695,6 +701,11 @@ impl ExpirationChecker {
 										Err(e) => panic!("failed to write gk cert to disk: {}", e.to_string()),
 									}
 								}
+								self.cmSvc
+									.certStatusReg
+									.SetStatus(CertUpdateResult { timestamp: Utc::now().timestamp(), status: UpdateStatus::NotExpired { expiresAt: newCert.expires_at.try_into().unwrap() } }, &svcc.0)
+									.await;
+							
 								self.cmSvc.certUpdateChannel.send_replace((newCert, svcc.0.clone()));
 							}
 							Err(e) => {
@@ -754,12 +765,7 @@ impl ExpirationChecker {
 					let certID = CertificateIdentifier::try_from(certDer.first().unwrap());
 					if certID.is_ok() {
 						match self.renewNSCert(&nsc.1.namespace, &nsc.0, Some(certID.unwrap())).await {
-							Ok(_) => {
-								self.cmSvc
-									.certStatusReg
-									.SetStatus(CertUpdateResult { status: UpdateStatus::Success, timestamp: currentTime.timestamp() /*  */ }, &nsc.1.namespace)
-									.await;
-							}
+							Ok(_) => {}
 							Err(e) => {
 								error!("error occured renewing NS cert: {}", e);
 								self.cmSvc

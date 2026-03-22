@@ -23,7 +23,6 @@ pub enum CertificateType {
 }
 #[derive(Serialize, Debug)]
 pub enum UpdateStatus {
-	Success,
 	NotExpired { expiresAt: i64 },
 	Failed { failureType: FailureType, reason: String },
 }
@@ -66,7 +65,7 @@ impl Into<CertStatus> for CertUpdateResult {
 	fn into(self) -> CertStatus {
 		match self.status {
 			UpdateStatus::Failed { .. } => CertStatus::Invalid { reason: self.status, lastCheck: self.timestamp },
-			UpdateStatus::Success => CertStatus::Valid { lastCheck: self.timestamp, expires: None },
+			// UpdateStatus::Success => CertStatus::Valid { lastCheck: self.timestamp, expires: None },
 			UpdateStatus::NotExpired { .. } => CertStatus::Valid { lastCheck: self.timestamp, expires: None },
 		}
 	}

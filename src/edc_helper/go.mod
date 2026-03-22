@@ -5,6 +5,7 @@ go 1.24.1
 require github.com/sirupsen/logrus v1.9.3
 
 require (
+	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.2 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
 	github.com/zeebo/errs v1.4.0 // indirect
@@ -14,7 +15,7 @@ require (
 
 require (
 	github.com/google/uuid v1.6.0 // indirect
-	go.alargerobot.dev/gatekeeper/sdk v0.0.0-20250928203850-ab11be656ed9
+	go.alargerobot.dev/gatekeeper/sdk v0.0.0-20260225202447-3f2785477a4d
 	golang.org/x/net v0.44.0 // indirect
 	golang.org/x/sys v0.36.0 // indirect
 	golang.org/x/text v0.29.0 // indirect

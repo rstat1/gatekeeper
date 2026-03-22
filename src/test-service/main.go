@@ -32,7 +32,7 @@ func main() {
 			common.LogInfo("", "", "this is where credential renewal would be handled, when not running in a k8s cluster.")
 		},
 	})
-	err := gkc.RegisterServiceEndpoint("test", common.GetOutboundIP()+":17003", []string{})
+	err := gkc.RegisterServiceEndpoint("timeservice", common.GetOutboundIP()+":17003", []string{})
 	if err != nil {
 		panic(err)
 	}

@@ -489,8 +489,6 @@ impl CertChecker {
 				let written = http.write_body(certJSON.as_bytes()).await;
 				if written.is_err() {
 					error!("{}", written.unwrap_err())
-				} else {
-					debug!("{:?}", written.unwrap());
 				}
 
 				http.finish_body().await.unwrap();
@@ -498,12 +496,7 @@ impl CertChecker {
 				let mut response_body = String::new();
 				while let Some(chunk) = http.read_body_ref().await.unwrap() {
 					response_body.push_str(&String::from_utf8_lossy(&chunk));
-					if response_body == "ok" {
-						self.client
-							.certStatusRegistry
-							.SetStatus(CertUpdateResult { timestamp: Utc::now().timestamp(), status: UpdateStatus::Success }, &rep.serviceName)
-							.await;
-					} else {
+					if response_body != "ok" {
 						let resp = response_body.clone();
 						error!("cert propagation failed: {resp}");
 						self.client
@@ -513,6 +506,8 @@ impl CertChecker {
 								&rep.serviceName,
 							)
 							.await;
+					} else {
+						info!("propagation of new credentials successful for service {}", rep.serviceName)
 					}
 				}
 			}
