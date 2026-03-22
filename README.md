@@ -47,6 +47,8 @@ Put a JSON file named `gatekeeper_config` next to the executable that matches th
 
 ```devMode``` exists as a setting to make sure a development instance and a production instance can use the same Vault and MongoDB servers without trampling over each other's data. It basically just causes a "dev" or "-dev" suffix to the names for Vault and MongoDB stuff.
 
+```vaultCAName``` is the name of the PKI secrets engine you created in Vault.
+
 ### Vault expectations
 Your vault instnace MUST have the following:
 
