@@ -53,6 +53,16 @@ type deviceRegistration struct {
 	ServicesAddr string `json:"servicesAddr"`
 }
 
+type renewalCheckRequest struct {
+	ServiceName           string `json:"service"`
+	CurrentCertExpiryTime uint64 `json:"currentExpireTime"`
+}
+
+type renewalCheckResponse struct {
+	Result         string
+	NewCredentials string
+}
+
 // # Description
 //
 // NewExternalDeviceClient creates a client for connecting an external device to Gatekeeper's
@@ -141,7 +151,8 @@ func (edc *ExternalDeviceClient) Login() error {
 				if err := edc.registerExternalClient(); err != nil {
 					return err
 				}
-				return nil
+
+				return edc.checkForNewCredentials()
 			}
 		} else {
 			return errors.New("failed to find pem block")
@@ -149,6 +160,46 @@ func (edc *ExternalDeviceClient) Login() error {
 	} else {
 		return errors.New("not allowed")
 	}
+}
+
+func (edc *ExternalDeviceClient) checkForNewCredentials() error {
+	certBytes, _ := os.ReadFile(edc.clientName + ".crt")
+	if cert, err := x509.ParseCertificate(certBytes); err == nil {
+		certExpiresAt := cert.NotAfter.UnixMilli()
+
+		devReg, _ := json.Marshal(renewalCheckRequest{
+			ServiceName:           edc.clientName,
+			CurrentCertExpiryTime: uint64(certExpiresAt),
+		})
+
+		req, _ := http.NewRequest("GET", "https://"+edc.serviceURL+"/device/update_credentials", bytes.NewReader(devReg))
+		req.Header.Add("Content-Type", DEVICE_API_CONTENT_TYPE)
+		req.Header.Add("Authorization", "Bearer "+edc.authToken)
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			if resp.StatusCode != 200 {
+				details, e := io.ReadAll(resp.Body)
+				if e != nil {
+					return e
+				}
+				return errors.New(string(details))
+			} else {
+				if details, e := io.ReadAll(resp.Body); e == nil {
+					var renewalResp renewalCheckResponse
+					json.Unmarshal(details, &renewalResp)
+					
+					if renewalResp.Result != "not expired" {
+						sc := v1.ServiceCredentials{}
+						json.Unmarshal([]byte(renewalResp.NewCredentials), &sc)
+						edc.epsServer.handleCertRenew(sc)
+					}
+				}
+			}
+		} else {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (edc *ExternalDeviceClient) registerExternalClient() error {
