@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 
 	v1 "go.alargerobot.dev/gatekeeper/sdk/rpc/config/v1"
