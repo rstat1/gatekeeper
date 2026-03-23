@@ -85,7 +85,7 @@ func (ess *endpointServicesServer) getTLSConfig(*tls.ClientHelloInfo) (tlsConf *
 	var cert tls.Certificate
 
 	if ess.isEDC {
-		certPair, err := tls.LoadX509KeyPair(filepath.Base(ess.serviceName)+".crt", filepath.Base(os.Args[0])+".key")
+		certPair, err := tls.LoadX509KeyPair(ess.serviceName+".crt", ess.serviceName+".key")
 		if err != nil {
 			panic(err)
 		}
