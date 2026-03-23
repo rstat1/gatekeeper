@@ -18,13 +18,13 @@ use crate::{
 use base64::{alphabet, engine, engine::general_purpose, Engine};
 use chrono::Utc;
 use domain::{
-	base::{iana::Class, Rtype},
-	resolv::StubResolver,
-};
-use domain::{
-	base::{name::Name},
+	base::name::Name,
 	rdata::Txt,
 	resolv::stub::conf::{ResolvConf, ServerConf},
+};
+use domain::{
+	base::{iana::Class, Rtype},
+	resolv::StubResolver,
 };
 
 use http_body_util::{BodyExt, Full};
@@ -240,8 +240,6 @@ impl CertManagerSvc {
 		ids.push(Identifier::Dns(namespace.to_string()));
 		ids.push(Identifier::Dns(format!("*.{namespace}")));
 		let newOrder = NewOrder::new(ids.as_slice());
-
-		//new(ResolverConfig::default(), ResolverOpts::default(), TokioConnectionProvider::default());
 
 		match account.new_order(&newOrder).await {
 			Ok(mut order) => {

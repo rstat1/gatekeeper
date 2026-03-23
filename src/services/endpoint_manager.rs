@@ -237,7 +237,7 @@ impl EndpointManagerImpl {
 		match epMap {
 			Ok(mut m) => {
 				if let Some(eps) = m.get_mut(&format!("{}/{}", request.endpoint_name.clone(), request.service_name)) {
-					debug!("added endpoint {} with hcr {}", format!("{}/{}", request.endpoint_name.clone(), request.service_name), &request.health_check_route);
+					debug!("added endpoint {} with hcr {}",format!("{}/{}", request.endpoint_name.clone(), request.service_name),&request.health_check_route);
 					eps.push(RegisteredEndpoint {
 						serviceName: request.service_name.clone(),
 						address: request.endpoint.parse().unwrap(),

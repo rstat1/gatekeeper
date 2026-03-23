@@ -22,9 +22,9 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, error};
 use uuid::Uuid;
 
-use crate::{pki::CertManagerSvc, data::DataStore};
+use crate::{data::DataStore, pki::CertManagerSvc, services::v1::ServiceCredentials};
 
-use super::{ endpoint_manager::EndpointManagerImpl};
+use super::endpoint_manager::EndpointManagerImpl;
 
 pub struct ExternalDeviceManager {
 	db: Arc<DataStore>,
@@ -122,11 +122,7 @@ impl ExternalDeviceManager {
 	}
 	pub async fn VerifyDeviceToken(&self, token: &str, svc: &String) -> Result<bool, String> {
 		let parts: Vec<&str> = token.split('.').collect();
-
 		let msgDecoded = String::from_utf8(engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::PAD).decode(parts[0].to_string()).unwrap()).unwrap();
-
-		debug!("{}", parts[1]);
-
 		match self.cm.VerifySignature("gatekeeper".to_string(), &msgDecoded, &parts[1].to_string()).await {
 			Ok(r) => {
 				if r {
@@ -198,7 +194,7 @@ impl ExternalDeviceManager {
 							},
 							Err(e) => {
 								sc = StatusCode::INTERNAL_SERVER_ERROR;
-								resp_body = Vec::from("error verifying request");
+								resp_body = Vec::from(format!("error verifying request: {e}"));
 								error!("error verifying request: {e}");
 							}
 						}
