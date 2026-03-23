@@ -19,14 +19,16 @@ import (
 type endpointServicesServer struct {
 	isEDC           bool
 	deviceID        string
+	serviceName     string
 	epsServer       *http.Server
 	gatekeeper      *GatekeeperClient
 	handleCertRenew func(v1.ServiceCredentials)
 }
 
-func newEndpointServiceServer(forClient bool, deviceID string, gkc *GatekeeperClient, handleCertRenew func(v1.ServiceCredentials)) *endpointServicesServer {
+func newEndpointServiceServer(forClient bool, deviceID string, gkc *GatekeeperClient, handleCertRenew func(v1.ServiceCredentials), serviceName string) *endpointServicesServer {
 	return &endpointServicesServer{
 		gatekeeper:      gkc,
+		serviceName:     serviceName,
 		isEDC:           forClient,
 		deviceID:        deviceID,
 		handleCertRenew: handleCertRenew,
@@ -83,7 +85,7 @@ func (ess *endpointServicesServer) getTLSConfig(*tls.ClientHelloInfo) (tlsConf *
 	var cert tls.Certificate
 
 	if ess.isEDC {
-		certPair, err := tls.LoadX509KeyPair(filepath.Base(os.Args[0])+".crt", filepath.Base(os.Args[0])+".key")
+		certPair, err := tls.LoadX509KeyPair(filepath.Base(ess.serviceName)+".crt", filepath.Base(os.Args[0])+".key")
 		if err != nil {
 			panic(err)
 		}

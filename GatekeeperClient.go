@@ -119,7 +119,7 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 	if config.ClientIsRunningOnKubernetes {
 		gkc.credsFileWatcher()
 	}
-	
+
 	clientTLSCreds, err := advancedtls.NewClientCreds(advTLSOpts)
 
 	if err != nil {
@@ -133,7 +133,7 @@ func NewGatekeeperClient(config GatekeeperClientConfig) *GatekeeperClient {
 	gkc.grpcClient = grpcClient
 	gkc.configService = cs.NewConfigServiceClient(grpcClient)
 	gkc.endpointManager = ep.NewEndpointManagerClient(grpcClient)
-	gkc.epsServer = newEndpointServiceServer(false, "", gkc, gkc.newCredsReceievedFromGK)
+	gkc.epsServer = newEndpointServiceServer(false, "", gkc, gkc.newCredsReceievedFromGK, gkc.config.ServiceName)
 	go gkc.epsServer.ListenAndServe(config.EndpointServicesPort)
 
 	return gkc

@@ -66,7 +66,7 @@ func NewExternalDeviceClient(config ExternalDeviceClientConfig, gkc *GatekeeperC
 		clientName: config.ClientName,
 		serviceURL: config.ServiceURL,
 		epsAddr:    config.EndpointServicesAddr,
-		epsServer:  newEndpointServiceServer(true, deviceID, gkc, config.CertificateRenewalHandler),
+		epsServer:  newEndpointServiceServer(true, deviceID, gkc, config.CertificateRenewalHandler, config.ClientName),
 	}
 
 	addrParts := strings.Split(config.EndpointServicesAddr, ":")
