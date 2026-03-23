@@ -12,8 +12,8 @@ import (
 )
 
 type config struct {
-	ServiceName    string `json:"serviceName"`
-	ServerEndpoint string `json:"serverEndpoint"`
+	ServiceName          string `json:"serviceName"`
+	ServerEndpoint       string `json:"serverEndpoint"`
 }
 
 func main() {

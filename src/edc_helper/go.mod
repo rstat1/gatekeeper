@@ -15,7 +15,7 @@ require (
 
 require (
 	github.com/google/uuid v1.6.0 // indirect
-	go.alargerobot.dev/gatekeeper/sdk v0.0.0-20260225202447-3f2785477a4d
+	go.alargerobot.dev/gatekeeper/sdk v0.0.0-20260323023936-fb4e88c23fc5
 	golang.org/x/net v0.44.0 // indirect
 	golang.org/x/sys v0.36.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
