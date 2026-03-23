@@ -103,7 +103,12 @@ impl EndpointManager for GRPCServer {
 
 		let svcInfo = request.get_ref();
 		match self.svcRegistryImpl.RegisterServiceEndpoint(&svcInfo) {
-			Ok(_) => Ok(Response::new(reply)),
+			Ok(_) => {
+				if !svcInfo.client_running_in_kubernetes {
+					self.svcRegistryImpl.SendCredentialUpdate(&svcInfo.service_name).await;
+				}
+				Ok(Response::new(reply))
+			}
 			Err(e) => Err(Status::new(tonic::Code::InvalidArgument, format!("error registering service endpoint: {}", e))),
 		}
 	}
@@ -211,15 +216,6 @@ impl ConfigService for GRPCServer {
 				}
 			}
 			Err(e) => Err(Status::new(tonic::Code::Unknown, e)),
-		}
-	}
-	async fn request_cert_renewal(&self, request: Request<Id>) -> Result<Response<ServiceCredentials>, Status> {
-		match self.svcRegistryImpl.ServiceIdToName(&request.get_ref().id) {
-			Ok(name) => match self.apiSvcImpl.RenewServiceCredentials(&name).await {
-				Ok(newCreds) => Ok(Response::new(newCreds)),
-				Err(_) => Err(Status::new(tonic::Code::Unknown, "nothing generated. invalid id?")),
-			},
-			Err(_) => Err(Status::new(tonic::Code::Unknown, "invalid id")),
 		}
 	}
 }

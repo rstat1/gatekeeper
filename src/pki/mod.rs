@@ -538,6 +538,19 @@ impl CertManagerSvc {
 	pub async fn SetCertStatus(&self, result: CertUpdateResult, certName: &String) {
 		self.certStatusReg.SetStatus(result, certName).await
 	}
+	pub async fn GetServiceCredsIfExpired(&self, timestampToCheck: u64, forService: &String) -> Option<ServiceCredentials> {
+		let cache = self.svcCertCache.read().await;
+
+		if cache.contains_key(forService) {
+			if cache[forService].expires_at >= timestampToCheck {
+				return None;
+			} else {
+				return Some(cache[forService].clone());
+			}
+		}
+
+		None
+	}
 	async fn getACMEAccount(&self) -> Result<(Account, String), String> {
 		let useGTS = StdRng::from_os_rng().random_ratio(1, 2);
 		let (ca, credsPath) = if self.devMode {

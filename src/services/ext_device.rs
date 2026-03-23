@@ -61,6 +61,18 @@ struct DeviceRegistrationData {
 	servicesAddr: String,
 }
 
+#[derive(Deserialize, Default)]
+struct RenewalCheckRequest {
+	serviceName: String,
+	currentCertExpireTime: u64,
+}
+
+#[derive(Serialize, Default)]
+struct RenewalCheckResponse {
+	result: String,
+	newCredentials: Option<String>,
+}
+
 impl ExternalDeviceManager {
 	pub fn Service(db: Arc<DataStore>, cm: Arc<CertManagerSvc>, gkCertExp: Option<u64>, epm: Arc<EndpointManagerImpl>) -> Service<ExternalDeviceManager> {
 		Service::new("Gatekeeper EDA".to_string(), ExternalDeviceManager { db, cm, gkCertExp, epm })
@@ -250,6 +262,44 @@ impl ExternalDeviceManager {
 		error!("{errorDescription}: {}", e.to_string());
 		(sc, Vec::from(errorDescription))
 	}
+	async fn UpdateDeviceCredentials(&self, svc: &String, http_session: &mut ServerSession) -> (StatusCode, Vec<u8>) {
+		let sc: StatusCode = StatusCode::OK;
+		let mut resp_body: Vec<u8> = Vec::default();
+
+		if http_session.req_header().headers.contains_key("Authorization") {
+			let token = http_session.req_header().headers.get(AUTHORIZATION).unwrap().to_str().unwrap_or_default();
+			match self.VerifyDeviceToken(token.strip_prefix("Bearer ").unwrap_or(token), svc).await {
+				Ok(_) => {}
+				Err(e) => {
+					return self.ErrorResponse(e, "token verification failed", StatusCode::UNAUTHORIZED);
+				}
+			}
+		} else {
+			return self.ErrorResponse("", "no auth token", StatusCode::BAD_REQUEST);
+		}
+
+		match http_session.read_request_body().await {
+			Ok(b) => if let Some(regData) = b {				
+				let req = serde_json::from_slice::<RenewalCheckRequest>(&regData).unwrap_or_default();
+				match self.cm.GetServiceCredsIfExpired(req.currentCertExpireTime, &req.serviceName).await {
+					Some(c) => {
+						let newCreds = serde_json::to_string::<ServiceCredentials>(&c).unwrap();
+						let resp = RenewalCheckResponse{result: "success".to_string(), newCredentials: Some(newCreds)};
+						resp_body = serde_json::to_vec_pretty::<RenewalCheckResponse>(&resp).unwrap();
+					},
+					None => {
+						let resp = RenewalCheckResponse{result: "not expired".to_string(), newCredentials: None};
+						resp_body = serde_json::to_vec_pretty::<RenewalCheckResponse>(&resp).unwrap();
+					}
+				}
+			},
+			Err(e) => {
+				return self.ErrorResponse(e, "an error occurred reading request data", StatusCode::BAD_REQUEST);
+			}
+		}
+
+		(sc, resp_body)
+	}
 }
 
 #[async_trait]
@@ -282,6 +332,11 @@ impl ServeHttp for ExternalDeviceManager {
 			}
 			if function.starts_with("/activate_eps") {
 				let resp = self.ActivateEPSForExtClient(svc, http_session).await;
+				sc = resp.0;
+				resp_body = resp.1;
+			}
+			if function.starts_with("/update_credentials") {
+				let resp = self.UpdateDeviceCredentials(svc, http_session).await;
 				sc = resp.0;
 				resp_body = resp.1;
 			}
