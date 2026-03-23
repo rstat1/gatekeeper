@@ -645,24 +645,34 @@ impl HealthChecker {
 											new_request.insert_header("Host", rep.serviceName.clone()).unwrap();
 											http.write_request_header(Box::new(new_request)).await.unwrap();
 											http.finish_body().await.unwrap();
-											http.read_response().await.unwrap();
-											let mut response_body = String::new();
-											while let Some(chunk) = http.read_body_ref().await.unwrap() {
-												response_body.push_str(&String::from_utf8_lossy(&chunk));
-											}
-
-											if response_body != "pong" {
-												if !rep.isExternalDevice {
-													error!("incorrect response, adding endpoint '{key}' to removal list, received response: {}", response_body);
-													to_remove.push(rep.epID.as_ref().unwrap().clone());
-												} else {
-													if let Some(devID) = &rep.deviceID {
-														error!("incorrect response, adding device '{key}' to removal list, received response: {}", response_body);
-														to_remove.push(devID.clone());
+											match http.read_response().await {
+												Ok(_) => {
+													let mut response_body = String::new();
+													while let Some(chunk) = http.read_body_ref().await.unwrap() {
+														response_body.push_str(&String::from_utf8_lossy(&chunk));
+													}
+													if response_body != "pong" {
+														if !rep.isExternalDevice {
+															error!("incorrect response, adding endpoint '{key}' to removal list, received response: {}", response_body);
+															to_remove.push(rep.epID.as_ref().unwrap().clone());
+														} else {
+															if let Some(devID) = &rep.deviceID {
+																error!("incorrect response, adding device '{key}' to removal list, received response: {}", response_body);
+																to_remove.push(devID.clone());
+															}
+														}
+													} else {
+														info!(target: "ep_monitor", event = "health_check", service = rep.serviceName, checkedAt = Utc::now().timestamp(), result = "success");
 													}
 												}
-											} else {
-												info!(target: "ep_monitor", event = "health_check", service = rep.serviceName, checkedAt = Utc::now().timestamp(), result = "success");
+												Err(e) => {
+													error!(
+														"incorrect response, adding endpoint or device '{}' to removal list: {:?} due to an error {e}",
+														rep.epID.as_ref().unwrap_or(rep.deviceID.as_ref().unwrap_or(&"".to_string())),
+														e
+													);
+													to_remove.push(rep.epID.as_ref().unwrap_or(rep.deviceID.as_ref().unwrap_or(&"".to_string())).clone());
+												}
 											}
 										}
 										Err(e) => {
