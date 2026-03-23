@@ -61,6 +61,7 @@ pub struct EndpointManagerImpl {
 	svcsList: Mutex<Vec<Service>>,
 	aliasToSvc: HashMap<String, String>,
 	certStatusRegistry: Arc<CertStatusRegistry>,
+	pendingCreds: RwLock<HashMap<String, ServiceCredentials>>,
 	epMap: Mutex<HashMap<String, Vec<RegisteredEndpoint>>>,
 	pub certUpdateChan: Receiver<(ServiceCredentials, String)>,
 }
@@ -110,6 +111,7 @@ impl EndpointManagerImpl {
 				let epmgr = Arc::new(EndpointManagerImpl {
 					svcsList: Mutex::new(svcsList),
 					domains: RwLock::new(Vec::from(d)),
+					pendingCreds: RwLock::new(HashMap::new()),
 					epMap: Mutex::new(HashMap::new()),
 					cmSvc,
 					aliasToSvc,
@@ -416,6 +418,81 @@ impl EndpointManagerImpl {
 			Err(_) => {}
 		}
 	}
+	pub async fn SendCredentialUpdate(&self, name: &String) {
+		let mut pc = self.pendingCreds.write().await;
+		if pc.contains_key(name) {
+			let svcEPs = self.GetRegisteredEndpoints(name);
+			if let Some(epList) = svcEPs {
+				let mut updateSuccess: bool = false;
+				for ep in epList {
+					updateSuccess = self.sendUpdate(ep, &pc[name]).await;
+				}
+				if updateSuccess {
+					pc.remove(name);
+				}
+			}
+		}
+	}
+	async fn sendUpdate(&self, rep: RegisteredEndpoint, newCreds: &ServiceCredentials) -> bool {
+		let gkCert = self.cmSvc.GetExistingServiceCert("gatekeeper".to_string()).await.unwrap();
+		let caChain: Vec<String> = gkCert.ca_cert.clone().split_inclusive("-----END CERTIFICATE-----").map(|s| s.to_string()).collect();
+		let cert = X509::from_pem(&Bytes::from(gkCert.certificate.clone())).unwrap();
+		let caInt = X509::from_pem(&Bytes::from(caChain[0].clone())).unwrap();
+		let caRoot = X509::from_pem(&Bytes::from(caChain[1].clone())).unwrap();
+		let pKey = PKey::private_key_from_pem(&Bytes::from(gkCert.private_key.clone())).unwrap();
+		let value = Arc::new(CertKey::new(vec![cert], pKey));
+		let connector = Connector::new(None);
+		let addrParts = rep.healthCheckRoute.split("/").collect::<Vec<&str>>();
+		let addr: SocketAddr = addrParts[2].to_string().parse().unwrap();
+		let mut peer = HttpPeer::new(addr, true, rep.serviceName.clone());
+		let mut peerOpts = PeerOptions::new();
+		let hcr: Uri = rep.healthCheckRoute.replace("/ping", "/cert_renew").parse().unwrap();
+
+		peer.client_cert_key = Some(value.clone());
+		peerOpts.alpn = ALPN::H1;
+		peerOpts.ca = Some(Arc::new(Box::new([caInt.clone(), caRoot.clone()])));
+		peer.options = peerOpts;
+
+		match connector.get_http_session(&peer).await {
+			Ok((mut http, _reused)) => {
+				let certJSON = serde_json::to_string(&newCreds).unwrap();
+				let mut new_request = RequestHeader::build("POST", hcr.path().as_bytes(), None).unwrap();
+				new_request.insert_header(header::HOST, rep.serviceName.clone()).unwrap();
+				new_request.insert_header(header::CONTENT_LENGTH, certJSON.len()).unwrap();
+				http.write_request_header(Box::new(new_request)).await.unwrap();
+
+				let written = http.write_body(certJSON.as_bytes()).await;
+				if written.is_err() {
+					error!("{}", written.unwrap_err())
+				}
+
+				http.finish_body().await.unwrap();
+				http.read_response().await.unwrap();
+				let mut response_body = String::new();
+				while let Some(chunk) = http.read_body_ref().await.unwrap() {
+					response_body.push_str(&String::from_utf8_lossy(&chunk));
+					if response_body != "ok" {
+						let resp = response_body.clone();
+						error!("cert propagation failed: {resp}");
+						self.certStatusRegistry
+							.SetStatus(
+								CertUpdateResult { status: UpdateStatus::Failed { failureType: FailureType::Propagation, reason: resp }, timestamp: Utc::now().timestamp() },
+								&rep.serviceName,
+							)
+							.await;
+						return false;
+					} else {
+						info!("propagation of new credentials successful for service {}", rep.serviceName);
+					}
+				}
+				return true;
+			}
+			Err(e) => {
+				error!("{}", e);
+				false
+			}
+		}
+	}
 	fn startHealthCheck(self: &Arc<Self>, ttl: u64) {
 		let hc = Arc::new(HealthChecker { client: Arc::clone(&self) });
 		hc.StartHealthCheck(ttl);
@@ -446,7 +523,16 @@ impl CertChecker {
 								}
 							}
 							None => {
-								debug!("no registered endpoints for {}", newCert.1)
+								self_clone.client.certStatusRegistry.SetStatus(
+										CertUpdateResult { timestamp: Utc::now().timestamp(), status: UpdateStatus::Pending { reason: "no registered endpoints".to_string() } },
+										&newCert.1,
+									)
+									.await;
+
+								let mut pc = self_clone.client.pendingCreds.write().await;
+								pc.insert(newCert.1.clone(), newCert.0.clone());
+
+								info!("no registered endpoints for {}, delaying propagation of new credentials", newCert.1)
 							}
 						}
 					} else {
