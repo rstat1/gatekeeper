@@ -69,6 +69,4 @@ service ConfigService {
 
     rpc DeleteNamespace(ID) returns (gatekeeper.services.types.Empty);
     rpc DeleteService(ID) returns (gatekeeper.services.types.Empty);
-
-    rpc RequestCertRenewal(ID) returns (ServiceCredentials);
 }

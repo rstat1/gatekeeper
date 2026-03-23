@@ -199,12 +199,4 @@ impl ConfigServiceImpl {
 			Err(_) => Err("failed to convert service name to ID".to_string()),
 		}
 	}
-	pub async fn RenewServiceCredentials(&self, name: &String) -> Result<ServiceCredentials, String> {
-		match self.cmSvc.GenerateServiceCert(name).await {
-			Ok(c) => {
-				return Ok(c);
-			}
-			Err(e) => return Err(e),
-		};
-	}
 }
