@@ -44,8 +44,6 @@ type ExternalDeviceClientConfig struct {
 	//This function will be called when Gatekeepr renews the credentials for a service, with
 	//a copy of the new credentials in tow.
 	CertificateRenewalHandler func(v1.ServiceCredentials)
-	//URL:Port combo that points the the Gatekeeper config service
-	GatekeeperAPIAddress string
 }
 
 type deviceRegistration struct {
@@ -186,7 +184,7 @@ func (edc *ExternalDeviceClient) checkForNewCredentials() error {
 				if details, e := io.ReadAll(resp.Body); e == nil {
 					var renewalResp renewalCheckResponse
 					json.Unmarshal(details, &renewalResp)
-					
+
 					if renewalResp.Result != "not expired" {
 						sc := v1.ServiceCredentials{}
 						json.Unmarshal([]byte(renewalResp.NewCredentials), &sc)
